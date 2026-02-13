@@ -1,4 +1,10 @@
-import { getLatestTelemetry, getTelemetriesForChart, getChargingCostThisMonth, getSavingsForBarChart } from "./data";
+import {
+  getLatestTelemetry,
+  getTelemetriesForChart,
+  getChargingCostThisMonth,
+  getSavingsForBarChart,
+  getTeslaAccountAndVehicles,
+} from "./data";
 import {
   Card,
   CardContent,
@@ -11,9 +17,13 @@ import { BatteryIcon } from "@/components/dashboard/battery-icon";
 import { EnergyChart } from "@/components/dashboard/energy-chart";
 import { SavingsBarChart } from "@/components/dashboard/savings-barchart";
 import { SyncButton } from "@/components/dashboard/sync-button";
-import { Gauge, MapPin, Zap } from "lucide-react";
+import { Car, Gauge, MapPin, User, Zap } from "lucide-react";
 import { DashboardHeader } from "@/components/dashboard/dashboard-header";
 import { VehicleMap } from "@/components/dashboard/vehicle-map";
+import { VehicleConfiguratorCarousel } from "@/components/dashboard/vehicle-configurator-carousel";
+import { Button } from "@/components/ui/button";
+import Link from "next/link";
+import { Link2 } from "lucide-react";
 
 const DIESEL_EUR_PER_L = 1.75;
 const DIESEL_KM_PER_L = 15;
@@ -21,12 +31,24 @@ const OCTOPUS_EUR_PER_KWH = 0.15;
 /** km per kWh stimato Model Y (es. 6.5 km/kWh) */
 const KM_PER_KWH = 6.5;
 
-export async function DashboardContent() {
-  const [latest, chartData, cost, savingsChart] = await Promise.all([
+const TESLA_ERROR_MESSAGES: Record<string, string> = {
+  access_denied: "Autorizzazione Tesla annullata.",
+  invalid_state: "Sessione scaduta. Riprova a collegare l’account.",
+  missing_code_or_state: "Callback Tesla senza code o state.",
+  token_exchange_failed: "Impossibile ottenere il token da Tesla. Riprova.",
+  no_refresh_token: "Tesla non ha restituito il refresh token.",
+  server_config: "Configurazione server mancante (TESLA_CLIENT_ID/SECRET/REDIRECT_URI).",
+};
+
+type DashboardContentProps = { teslaError?: string };
+
+export async function DashboardContent({ teslaError }: DashboardContentProps) {
+  const [latest, chartData, cost, savingsChart, teslaAccount] = await Promise.all([
     getLatestTelemetry(),
     getTelemetriesForChart(7),
     getChargingCostThisMonth(),
     getSavingsForBarChart(4),
+    getTeslaAccountAndVehicles(),
   ]);
 
   // Speso questo mese (da charging_events)
@@ -60,6 +82,100 @@ export async function DashboardContent() {
           <DashboardHeader />
         </div>
       </div>
+
+      {teslaAccount ? (
+        <div className="grid gap-4 md:grid-cols-2">
+          <Card>
+            <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
+              <CardTitle className="text-sm font-medium">Account Tesla</CardTitle>
+              <User className="text-muted-foreground h-4 w-4" />
+            </CardHeader>
+            <CardContent className="space-y-2">
+              <p className="font-medium">
+                {teslaAccount.user.full_name || "—"}
+              </p>
+              {teslaAccount.user.email && (
+                <p className="text-muted-foreground text-sm">{teslaAccount.user.email}</p>
+              )}
+              <Badge variant="outline" className="mt-1">
+                Regione: {teslaAccount.region}
+              </Badge>
+            </CardContent>
+          </Card>
+          <Card>
+            <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
+              <CardTitle className="text-sm font-medium">I miei veicoli</CardTitle>
+              <Car className="text-muted-foreground h-4 w-4" />
+            </CardHeader>
+            <CardContent>
+              {teslaAccount.vehicles.length === 0 ? (
+                <p className="text-muted-foreground text-sm">Nessun veicolo collegato.</p>
+              ) : (
+                <ul className="space-y-2">
+                  {teslaAccount.vehicles.map((v) => (
+                    <li
+                      key={v.id}
+                      className="flex flex-wrap items-center justify-between gap-2 rounded-md border border-border bg-muted/30 px-3 py-2 text-sm"
+                    >
+                      <span className="font-medium">
+                        {v.display_name || `Veicolo ${v.id}`}
+                      </span>
+                      <div className="flex items-center gap-2">
+                        <Badge variant={v.state === "online" ? "default" : "secondary"}>
+                          {v.state ?? "—"}
+                        </Badge>
+                        <span className="font-mono text-muted-foreground text-xs">
+                          {v.vin}
+                        </span>
+                      </div>
+                    </li>
+                  ))}
+                </ul>
+              )}
+            </CardContent>
+          </Card>
+        </div>
+      ) : (
+        <Card>
+          <CardHeader>
+            <CardTitle className="text-base">Collega il tuo account Tesla</CardTitle>
+            <CardDescription>
+              Per vedere profilo, veicoli e sincronizzare i dati dalla Fleet API.
+            </CardDescription>
+          </CardHeader>
+          <CardContent className="space-y-4">
+            {teslaError && (
+              <div className="rounded-md border border-destructive/50 bg-destructive/10 px-3 py-2 text-sm text-destructive">
+                {TESLA_ERROR_MESSAGES[teslaError] ?? `Errore: ${teslaError}`}
+              </div>
+            )}
+            <ol className="list-inside list-decimal space-y-1 text-muted-foreground text-sm">
+              <li>Clicca il pulsante qui sotto.</li>
+              <li>Accedi con il tuo account Tesla (se non sei già loggato).</li>
+              <li>Autorizza l’app (profilo e dati veicolo).</li>
+              <li>Verrai reindirizzato alla dashboard con l’account collegato.</li>
+            </ol>
+            <Button asChild className="gap-2">
+              <Link href="/api/auth/tesla/connect">
+                <Link2 className="h-4 w-4" />
+                Collega account Tesla
+              </Link>
+            </Button>
+          </CardContent>
+        </Card>
+      )}
+
+      <Card className="overflow-hidden">
+        <CardHeader className="pb-2">
+          <CardTitle className="text-sm font-medium">Model Y Long Range RWD</CardTitle>
+          <CardDescription>
+            Stealth Grey (Lunar Grey) · Compositor Design Studio — scorri le viste
+          </CardDescription>
+        </CardHeader>
+        <CardContent className="p-0">
+          <VehicleConfiguratorCarousel className="w-full" />
+        </CardContent>
+      </Card>
 
       <div className="grid gap-4 md:grid-cols-3">
         <Card>

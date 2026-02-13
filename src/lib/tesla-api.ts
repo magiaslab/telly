@@ -1,8 +1,20 @@
 import { teslaVehicleDataSchema } from "./tesla-vehicle-data.zod";
 import type { TeslaVehicleDataValidated } from "./tesla-vehicle-data.zod";
-import type { TeslaTokenResponse, TeslaVehiclesResponse } from "./tesla-types";
+import type {
+  TeslaTokenResponse,
+  TeslaVehiclesResponse,
+  TeslaUserMeResponse,
+  TeslaRegionResponse,
+} from "./tesla-types";
 
-const TESLA_API_BASE = "https://fleet-api.prd.na.vn.cloud.tesla.com";
+const TESLA_API_BASE_NA = "https://fleet-api.prd.na.vn.cloud.tesla.com";
+const TESLA_API_BASE_EU = "https://fleet-api.prd.eu.vn.cloud.tesla.com";
+/** Base URL Fleet API per regione (NA = Americas/APAC, EU = Europa/MEA) */
+export function getTeslaFleetBaseUrl(region: "NA" | "EU" = "NA"): string {
+  return region === "EU" ? TESLA_API_BASE_EU : TESLA_API_BASE_NA;
+}
+
+const TESLA_API_BASE = TESLA_API_BASE_NA;
 const TESLA_AUTH_BASE = "https://auth.tesla.com/oauth2/v3";
 
 export async function getTeslaAccessToken(refreshToken: string): Promise<string> {
@@ -50,11 +62,52 @@ export async function getVehicleData(
   return parsed.data;
 }
 
-export async function listVehicles(accessToken: string): Promise<TeslaVehiclesResponse> {
-  const res = await fetch(`${TESLA_API_BASE}/api/1/vehicles`, {
+export async function listVehicles(
+  accessToken: string,
+  baseUrl: string = TESLA_API_BASE
+): Promise<TeslaVehiclesResponse> {
+  const res = await fetch(`${baseUrl}/api/1/vehicles`, {
     headers: { Authorization: `Bearer ${accessToken}` },
     next: { revalidate: 0 },
   });
   if (!res.ok) throw new Error(`Tesla vehicles list failed: ${res.status}`);
+  return res.json();
+}
+
+/**
+ * GET /api/1/users/me — profilo utente Tesla (senza VIN).
+ * Richiede token con scope user_data o openid.
+ */
+export async function getTeslaUserMe(
+  accessToken: string,
+  baseUrl: string = TESLA_API_BASE
+): Promise<TeslaUserMeResponse> {
+  const res = await fetch(`${baseUrl}/api/1/users/me`, {
+    headers: {
+      Authorization: `Bearer ${accessToken}`,
+      "Content-Type": "application/json",
+    },
+    next: { revalidate: 0 },
+  });
+  if (!res.ok) throw new Error(`Tesla users/me failed: ${res.status}`);
+  return res.json();
+}
+
+/**
+ * GET /api/1/region — regione dell'account (NA / EU / CN). Senza VIN.
+ * Usa la base per scegliere l'endpoint Fleet corretto (getTeslaFleetBaseUrl).
+ */
+export async function getTeslaRegion(
+  accessToken: string,
+  baseUrl: string = TESLA_API_BASE
+): Promise<TeslaRegionResponse> {
+  const res = await fetch(`${baseUrl}/api/1/region`, {
+    headers: {
+      Authorization: `Bearer ${accessToken}`,
+      "Content-Type": "application/json",
+    },
+    next: { revalidate: 0 },
+  });
+  if (!res.ok) throw new Error(`Tesla region failed: ${res.status}`);
   return res.json();
 }

@@ -37,6 +37,28 @@ export interface TeslaTokenResponse {
 }
 
 export interface TeslaVehiclesResponse {
-  response: Array<{ id: number; vin: string; state: string }>;
+  response: Array<{
+    id: number;
+    vehicle_id: number;
+    vin: string;
+    display_name?: string;
+    state?: string;
+    option_codes?: string;
+  }>;
   count: number;
+}
+
+/** GET /api/1/users/me — profilo utente (senza VIN) */
+export interface TeslaUserMeResponse {
+  response: {
+    id: number;
+    email?: string;
+    full_name?: string;
+    profile_image_url?: string;
+  };
+}
+
+/** GET /api/1/region — regione account (senza VIN); per base URL Fleet API */
+export interface TeslaRegionResponse {
+  response: { region: "NA" | "EU" | "CN" };
 }

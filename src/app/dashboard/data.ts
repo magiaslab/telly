@@ -1,6 +1,14 @@
+import { cookies } from "next/headers";
 import { db, telemetries, chargingEvents, trips } from "@/db";
 import { eq, desc, and, gte } from "drizzle-orm";
 import { getEffectiveVin } from "@/lib/use-mock";
+import {
+  getTeslaAccessToken,
+  getTeslaRegion,
+  getTeslaUserMe,
+  listVehicles,
+  getTeslaFleetBaseUrl,
+} from "@/lib/tesla-api";
 
 const DIESEL_EUR_PER_L = 1.75;
 const DIESEL_KM_PER_L = 15; // Kia 1.4 Diesel
@@ -118,5 +126,44 @@ export async function getSavingsForBarChart(weeks = 4) {
     return { series };
   } catch {
     return { series: [] };
+  }
+}
+
+/** Profilo Tesla + lista veicoli (senza VIN). Richiede token da cookie o env. */
+export async function getTeslaAccountAndVehicles(): Promise<{
+  user: { id: number; email?: string; full_name?: string; profile_image_url?: string };
+  region: string;
+  vehicles: Array<{
+    id: number;
+    vehicle_id: number;
+    vin: string;
+    display_name?: string;
+    state?: string;
+    option_codes?: string;
+  }>;
+} | null> {
+  const cookieStore = await cookies();
+  const refreshToken =
+    cookieStore.get("tesla_refresh_token")?.value ?? process.env.TESLA_REFRESH_TOKEN;
+  if (!refreshToken) return null;
+
+  try {
+    const accessToken = await getTeslaAccessToken(refreshToken);
+    const regionRes = await getTeslaRegion(accessToken);
+    const region = regionRes.response?.region ?? "NA";
+    const baseUrl = getTeslaFleetBaseUrl(region === "EU" ? "EU" : "NA");
+
+    const [meRes, vehiclesRes] = await Promise.all([
+      getTeslaUserMe(accessToken, baseUrl),
+      listVehicles(accessToken, baseUrl),
+    ]);
+
+    return {
+      user: meRes.response ?? { id: 0 },
+      region,
+      vehicles: vehiclesRes.response ?? [],
+    };
+  } catch {
+    return null;
   }
 }
