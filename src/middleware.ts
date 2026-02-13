@@ -1,3 +1,4 @@
+import { NextResponse } from "next/server";
 import { auth } from "@/auth";
 
 export default auth((req) => {
@@ -6,7 +7,13 @@ export default auth((req) => {
   const isSignupPage = req.nextUrl.pathname === "/signup";
   const isAuthApi = req.nextUrl.pathname.startsWith("/api/auth");
 
-  if (isAuthApi) return;
+  if (isAuthApi) {
+    const res = NextResponse.next();
+    if (req.nextUrl.pathname === "/api/auth/signin/tesla") {
+      res.headers.set("Referrer-Policy", "no-referrer");
+    }
+    return res;
+  }
   if (isSignupPage) return Response.redirect(new URL("/login", req.nextUrl));
   if (isLoginPage && isLoggedIn) {
     return Response.redirect(new URL("/dashboard", req.nextUrl));
