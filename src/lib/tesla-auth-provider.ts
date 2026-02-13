@@ -22,6 +22,7 @@ export interface TeslaProfile {
 export default function Tesla(
   options: OAuthUserConfig<TeslaProfile>
 ): OAuthConfig<TeslaProfile> {
+  const { clientId: _cid, clientSecret: _csec, ...restOptions } = options;
   return {
     id: "tesla",
     name: "Tesla",
@@ -120,14 +121,14 @@ export default function Tesla(
       };
     },
     style: { brandColor: "#cc0000" },
-    ...options,
+    ...restOptions,
     // Auth.js usa provider.clientId/clientSecret per il token exchange (oauth4webapi), non token.request.
     // Getter così su Vercel vengono letti a runtime quando parte il callback.
     get clientId() {
-      return process.env.TESLA_CLIENT_ID ?? (options as { clientId?: string }).clientId;
+      return process.env.TESLA_CLIENT_ID ?? options.clientId ?? "";
     },
     get clientSecret() {
-      return process.env.TESLA_CLIENT_SECRET ?? (options as { clientSecret?: string }).clientSecret;
+      return process.env.TESLA_CLIENT_SECRET ?? options.clientSecret ?? "";
     },
-  };
+  } as OAuthConfig<TeslaProfile>;
 }
