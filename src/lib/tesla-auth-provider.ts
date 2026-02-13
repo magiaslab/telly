@@ -8,6 +8,7 @@ const TESLA_AUTHORIZE = "https://auth.tesla.com/oauth2/v3/authorize";
 const TESLA_TOKEN_URL = "https://fleet-auth.prd.vn.cloud.tesla.com/oauth2/v3/token";
 const FLEET_AUDIENCE_NA = "https://fleet-api.prd.na.vn.cloud.tesla.com";
 const FLEET_API_NA = "https://fleet-api.prd.na.vn.cloud.tesla.com";
+const FLEET_API_EU = "https://fleet-api.prd.eu.vn.cloud.tesla.com";
 const SCOPES =
   "openid offline_access user_data vehicle_device_data vehicle_location";
 
@@ -85,15 +86,22 @@ export default function Tesla(
       }: {
         tokens: { access_token?: string };
       }) {
-        const res = await fetch(`${FLEET_API_NA}/api/1/users/me`, {
-          headers: {
-            Authorization: `Bearer ${tokens.access_token}`,
-            "Content-Type": "application/json",
-          },
-        });
-        if (!res.ok) throw new Error(`Tesla userinfo failed: ${res.status}`);
-        const json = await res.json();
-        return json.response ?? json;
+        const authHeader = `Bearer ${tokens.access_token ?? ""}`;
+        const tryUserinfo = async (base: string) => {
+          const r = await fetch(`${base}/api/1/users/me`, {
+            headers: { Authorization: authHeader, "Content-Type": "application/json" },
+          });
+          return { ok: r.ok, status: r.status, json: r.ok ? await r.json() : null };
+        };
+        let out = await tryUserinfo(FLEET_API_NA);
+        if (!out.ok && (out.status === 401 || out.status === 403)) {
+          out = await tryUserinfo(FLEET_API_EU);
+        }
+        if (!out.ok) {
+          throw new Error(`Tesla userinfo failed: ${out.status} (NA e EU provati)`);
+        }
+        const json = out.json as { response?: TeslaProfile };
+        return json?.response ?? json;
       },
     },
     profile(profile: TeslaProfile) {

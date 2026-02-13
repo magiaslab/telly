@@ -2,12 +2,14 @@ import NextAuth from "next-auth";
 import Tesla from "@/lib/tesla-auth-provider";
 
 export const { handlers, auth, signIn, signOut } = NextAuth({
+  trustHost: true,
   session: {
     strategy: "jwt",
     maxAge: 30 * 24 * 60 * 60, // 30 giorni
   },
   pages: {
     signIn: "/login",
+    error: "/auth-error",
   },
   providers: [
     Tesla({
