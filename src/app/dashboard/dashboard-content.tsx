@@ -22,8 +22,8 @@ import { DashboardHeader } from "@/components/dashboard/dashboard-header";
 import { VehicleMap } from "@/components/dashboard/vehicle-map";
 import { VehicleConfiguratorCarousel } from "@/components/dashboard/vehicle-configurator-carousel";
 import { Button } from "@/components/ui/button";
+import Link from "next/link";
 import { Link2 } from "lucide-react";
-import { cookies, headers } from "next/headers";
 
 const DIESEL_EUR_PER_L = 1.75;
 const DIESEL_KM_PER_L = 15;
@@ -42,24 +42,8 @@ const TESLA_ERROR_MESSAGES: Record<string, string> = {
 
 type DashboardContentProps = { teslaError?: string };
 
-/** Card con form POST nativo per "Accedi di nuovo con Tesla" (evita CORS da fetch). */
-async function TeslaReconnectCard({ teslaError }: { teslaError?: string }) {
-  const cookieStore = await cookies();
-  const headersList = await headers();
-  const origin = headersList.get("x-forwarded-host")
-    ? `${headersList.get("x-forwarded-proto") ?? "https"}://${headersList.get("x-forwarded-host")}`
-    : process.env.NEXTAUTH_URL ?? "http://localhost:3000";
-  let csrfToken = "";
-  try {
-    const res = await fetch(`${origin}/api/auth/csrf`, {
-      headers: { Cookie: cookieStore.toString() },
-      cache: "no-store",
-    });
-    const data = await res.json();
-    csrfToken = data.token ?? "";
-  } catch {
-    // ignore
-  }
+/** Card per "Accedi di nuovo con Tesla": link a /login (dove il form ha CSRF dal browser). */
+function TeslaReconnectCard({ teslaError }: { teslaError?: string }) {
   return (
     <Card>
       <CardHeader>
@@ -74,14 +58,12 @@ async function TeslaReconnectCard({ teslaError }: { teslaError?: string }) {
             {TESLA_ERROR_MESSAGES[teslaError] ?? `Errore: ${teslaError}`}
           </div>
         )}
-        <form action="/api/auth/signin/tesla" method="POST" className="inline-block">
-          <input type="hidden" name="csrfToken" value={csrfToken} />
-          <input type="hidden" name="callbackUrl" value="/dashboard" />
-          <Button type="submit" className="gap-2">
+        <Button asChild className="gap-2">
+          <Link href="/login">
             <Link2 className="h-4 w-4" />
             Accedi di nuovo con Tesla
-          </Button>
-        </form>
+          </Link>
+        </Button>
       </CardContent>
     </Card>
   );
