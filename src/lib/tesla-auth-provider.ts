@@ -46,7 +46,9 @@ export default function Tesla(
         const clientSecret = provider.clientSecret ?? process.env.TESLA_CLIENT_SECRET;
         const redirectUri = provider.callbackUrl;
         if (!clientId || !clientSecret || !redirectUri) {
-          throw new Error("Tesla OAuth: missing clientId, clientSecret or callbackUrl");
+          const msg = "Tesla OAuth: missing clientId, clientSecret or callbackUrl";
+          console.error("[Telly Tesla OAuth]", msg, { hasClientId: !!clientId, hasClientSecret: !!clientSecret, redirectUri: redirectUri ?? null });
+          throw new Error(msg);
         }
         const body = new URLSearchParams({
           grant_type: "authorization_code",
@@ -63,7 +65,9 @@ export default function Tesla(
         });
         if (!res.ok) {
           const text = await res.text();
-          throw new Error(`Tesla token exchange failed: ${res.status} ${text}`);
+          const msg = `Tesla token exchange failed: ${res.status} ${text}`;
+          console.error("[Telly Tesla OAuth]", msg);
+          throw new Error(msg);
         }
         const data = (await res.json()) as {
           access_token?: string;
@@ -98,7 +102,9 @@ export default function Tesla(
           out = await tryUserinfo(FLEET_API_EU);
         }
         if (!out.ok) {
-          throw new Error(`Tesla userinfo failed: ${out.status} (NA e EU provati)`);
+          const msg = `Tesla userinfo failed: ${out.status} (NA e EU provati)`;
+          console.error("[Telly Tesla OAuth]", msg);
+          throw new Error(msg);
         }
         const json = out.json as { response?: TeslaProfile };
         return json?.response ?? json;
