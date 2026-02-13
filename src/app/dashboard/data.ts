@@ -144,31 +144,27 @@ export type TeslaAccountData = {
   orders: unknown;
 };
 
-/** Dati account Tesla dato un refresh token (usato da API route e da fetch dashboard). */
+/** Dati account Tesla dato un refresh token (usato da API route e da fetch dashboard). Lancia se refresh o API falliscono. */
 export async function fetchTeslaAccountData(
   refreshToken: string
-): Promise<TeslaAccountData | null> {
-  try {
-    const accessToken = await getTeslaAccessToken(refreshToken);
-    const regionRes = await getTeslaRegion(accessToken);
-    const region = regionRes.response?.region ?? "NA";
-    const baseUrl = getTeslaFleetBaseUrl(region === "EU" ? "EU" : "NA");
+): Promise<TeslaAccountData> {
+  const accessToken = await getTeslaAccessToken(refreshToken);
+  const regionRes = await getTeslaRegion(accessToken);
+  const region = regionRes.response?.region ?? "NA";
+  const baseUrl = getTeslaFleetBaseUrl(region === "EU" ? "EU" : "NA");
 
-    const [meRes, vehiclesRes, ordersRes] = await Promise.all([
-      getTeslaUserMe(accessToken, baseUrl),
-      listVehicles(accessToken, baseUrl),
-      getTeslaOrders(accessToken, baseUrl).catch(() => ({ response: null })),
-    ]);
+  const [meRes, vehiclesRes, ordersRes] = await Promise.all([
+    getTeslaUserMe(accessToken, baseUrl),
+    listVehicles(accessToken, baseUrl),
+    getTeslaOrders(accessToken, baseUrl).catch(() => ({ response: null })),
+  ]);
 
-    return {
-      user: meRes.response ?? { id: 0 },
-      region,
-      vehicles: vehiclesRes.response ?? [],
-      orders: ordersRes.response ?? null,
-    };
-  } catch {
-    return null;
-  }
+  return {
+    user: meRes.response ?? { id: 0 },
+    region,
+    vehicles: vehiclesRes.response ?? [],
+    orders: ordersRes.response ?? null,
+  };
 }
 
 /** Profilo Tesla + veicoli + ordini. In login Tesla legge il token da JWT (via /api/tesla/account), altrimenti cookie/env. */
