@@ -4,6 +4,7 @@ import { compare } from "bcryptjs";
 import { eq } from "drizzle-orm";
 import { db } from "@/db";
 import { users } from "@/db/schema";
+import Tesla from "@/lib/tesla-auth-provider";
 
 export const { handlers, auth, signIn, signOut } = NextAuth({
   trustHost: true,
@@ -35,17 +36,24 @@ export const { handlers, auth, signIn, signOut } = NextAuth({
         };
       },
     }),
+    Tesla({
+      clientId: process.env.TESLA_CLIENT_ID!,
+      clientSecret: process.env.TESLA_CLIENT_SECRET!,
+    }),
   ],
   callbacks: {
     jwt({ token, user, account }) {
+      if (account?.provider === "tesla" && account.refresh_token) {
+        token.tesla_refresh_token = account.refresh_token;
+        if (token.sub) {
+          return token;
+        }
+      }
       if (user) {
         token.sub = user.id;
         token.email = user.email ?? undefined;
         token.name = user.name ?? undefined;
         token.picture = user.image ?? undefined;
-      }
-      if (account?.provider === "tesla" && account.refresh_token) {
-        token.tesla_refresh_token = account.refresh_token;
       }
       return token;
     },

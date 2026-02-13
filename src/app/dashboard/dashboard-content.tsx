@@ -21,6 +21,7 @@ import { Car, Gauge, MapPin, Package, User, Zap } from "lucide-react";
 import { DashboardHeader } from "@/components/dashboard/dashboard-header";
 import { VehicleMap } from "@/components/dashboard/vehicle-map";
 import { VehicleConfiguratorCarousel } from "@/components/dashboard/vehicle-configurator-carousel";
+import { TeslaConnectButton } from "@/components/dashboard/tesla-connect-button";
 
 const DIESEL_EUR_PER_L = 1.75;
 const DIESEL_KM_PER_L = 15;
@@ -37,16 +38,16 @@ const TESLA_ERROR_MESSAGES: Record<string, string> = {
   server_config: "Configurazione server mancante (TESLA_CLIENT_ID/SECRET/REDIRECT_URI).",
 };
 
-type DashboardContentProps = { teslaError?: string };
+type DashboardContentProps = { teslaError?: string; teslaLinked?: boolean };
 
-/** Card quando i dati Tesla non sono disponibili: token da env o da collegare dall’app. */
+/** Card quando i dati Tesla non sono disponibili: pulsante Collega o token da env. */
 function TeslaReconnectCard({ teslaError }: { teslaError?: string }) {
   return (
     <Card>
       <CardHeader>
         <CardTitle className="text-base">Dati Tesla non disponibili</CardTitle>
         <CardDescription>
-          Per profilo, veicoli e ordini Tesla imposta <code className="rounded bg-muted px-1">TESLA_REFRESH_TOKEN</code> nelle variabili d’ambiente, oppure collegherai l’account Tesla dall’app.
+          Collega il tuo account Tesla per profilo, veicoli e ordini, oppure imposta <code className="rounded bg-muted px-1">TESLA_REFRESH_TOKEN</code> in env.
         </CardDescription>
       </CardHeader>
       <CardContent className="space-y-4">
@@ -55,12 +56,13 @@ function TeslaReconnectCard({ teslaError }: { teslaError?: string }) {
             {TESLA_ERROR_MESSAGES[teslaError] ?? `Errore: ${teslaError}`}
           </div>
         )}
+        <TeslaConnectButton />
       </CardContent>
     </Card>
   );
 }
 
-export async function DashboardContent({ teslaError }: DashboardContentProps) {
+export async function DashboardContent({ teslaError, teslaLinked }: DashboardContentProps) {
   const [latest, chartData, cost, savingsChart, teslaAccount] = await Promise.all([
     getLatestTelemetry(),
     getTelemetriesForChart(7),
@@ -82,6 +84,11 @@ export async function DashboardContent({ teslaError }: DashboardContentProps) {
 
   return (
     <div className="space-y-8">
+      {teslaLinked && (
+        <div className="rounded-lg border border-green-500/30 bg-green-500/10 px-4 py-3 text-sm text-green-800 dark:text-green-200">
+          Account Tesla collegato. Profilo e veicoli aggiornati.
+        </div>
+      )}
       {hasNoData && (
         <div className="bg-muted/50 border-border rounded-lg border px-4 py-3 text-sm">
           <strong>Nessun dato in database.</strong> Crea le tabelle e carica i dati mock:{" "}

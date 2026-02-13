@@ -5,14 +5,17 @@ import DashboardLoading from "./loading";
 export const dynamic = "force-dynamic";
 
 type PageProps = {
-  searchParams: Promise<{ tesla_error?: string }> | { tesla_error?: string };
+  searchParams: Promise<{ tesla_error?: string; tesla_linked?: string }> | { tesla_error?: string; tesla_linked?: string };
 };
 
 export default async function DashboardPage(props: PageProps) {
   const searchParams = await Promise.resolve(props.searchParams);
   return (
     <Suspense fallback={<DashboardLoading />}>
-      <DashboardContent teslaError={searchParams.tesla_error} />
+      <DashboardContent
+        teslaError={searchParams.tesla_error}
+        teslaLinked={searchParams.tesla_linked === "1"}
+      />
     </Suspense>
   );
 }
