@@ -86,7 +86,7 @@ Con un **access token** (refresh + client_id/secret) puoi chiamare queste Fleet 
 | **GET /api/1/region** | Regione account (NA / EU / CN) per base URL Fleet | `getTeslaRegion()` + `getTeslaFleetBaseUrl()` (usato in /api/tesla/me e /api/tesla/vehicles) |
 | **GET /api/1/vehicles** | Lista veicoli (id, vin, display_name, state) | `listVehicles()` + **GET /api/tesla/vehicles** — da qui si ottiene il VIN per sync |
 | **GET /api/1/feature_config** | Configurazione funzionalità | Non implementato |
-| **GET /api/1/orders** | Ordini (es. veicoli acquistati) | Non implementato |
+| **GET /api/1/users/orders** | Ordini attivi utente | `getTeslaOrders()` + card Ordini in dashboard |
 
 Per **vehicle_data**, **options**, **wake**, ecc. serve l’**id** o **VIN** ottenuto da `GET /api/1/vehicles`. Flusso consigliato: token → `getTeslaRegion()` → base URL regione → `listVehicles()` → scegliere il primo veicolo (o uno predefinito) e usare il suo VIN per sync e dashboard.
 

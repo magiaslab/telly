@@ -5,6 +5,7 @@ import type {
   TeslaVehiclesResponse,
   TeslaUserMeResponse,
   TeslaRegionResponse,
+  TeslaOrdersResponse,
 } from "./tesla-types";
 
 const TESLA_API_BASE_NA = "https://fleet-api.prd.na.vn.cloud.tesla.com";
@@ -109,5 +110,24 @@ export async function getTeslaRegion(
     next: { revalidate: 0 },
   });
   if (!res.ok) throw new Error(`Tesla region failed: ${res.status}`);
+  return res.json();
+}
+
+/**
+ * GET /api/1/users/orders — ordini attivi dell'utente (senza VIN).
+ * Documentazione: "Returns the active orders for a user". Forma esatta non documentata.
+ */
+export async function getTeslaOrders(
+  accessToken: string,
+  baseUrl: string = TESLA_API_BASE
+): Promise<TeslaOrdersResponse> {
+  const res = await fetch(`${baseUrl}/api/1/users/orders`, {
+    headers: {
+      Authorization: `Bearer ${accessToken}`,
+      "Content-Type": "application/json",
+    },
+    next: { revalidate: 0 },
+  });
+  if (!res.ok) throw new Error(`Tesla users/orders failed: ${res.status}`);
   return res.json();
 }

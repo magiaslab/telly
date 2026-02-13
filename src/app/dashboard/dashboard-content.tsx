@@ -17,7 +17,7 @@ import { BatteryIcon } from "@/components/dashboard/battery-icon";
 import { EnergyChart } from "@/components/dashboard/energy-chart";
 import { SavingsBarChart } from "@/components/dashboard/savings-barchart";
 import { SyncButton } from "@/components/dashboard/sync-button";
-import { Car, Gauge, MapPin, User, Zap } from "lucide-react";
+import { Car, Gauge, MapPin, Package, User, Zap } from "lucide-react";
 import { DashboardHeader } from "@/components/dashboard/dashboard-header";
 import { VehicleMap } from "@/components/dashboard/vehicle-map";
 import { VehicleConfiguratorCarousel } from "@/components/dashboard/vehicle-configurator-carousel";
@@ -84,22 +84,37 @@ export async function DashboardContent({ teslaError }: DashboardContentProps) {
       </div>
 
       {teslaAccount ? (
-        <div className="grid gap-4 md:grid-cols-2">
+        <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-3">
           <Card>
             <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
               <CardTitle className="text-sm font-medium">Account Tesla</CardTitle>
               <User className="text-muted-foreground h-4 w-4" />
             </CardHeader>
-            <CardContent className="space-y-2">
-              <p className="font-medium">
-                {teslaAccount.user.full_name || "—"}
+            <CardContent className="space-y-3">
+              <div className="flex flex-wrap items-center gap-2">
+                <Badge className="bg-green-600 hover:bg-green-700 dark:bg-green-700 dark:hover:bg-green-800">
+                  Account collegato
+                </Badge>
+                <Badge variant="outline">
+                  Regione: {teslaAccount.region}
+                </Badge>
+              </div>
+              <p className="text-muted-foreground text-xs">
+                Accesso effettuato con il tuo account Tesla. Dati da Fleet API.
               </p>
-              {teslaAccount.user.email && (
-                <p className="text-muted-foreground text-sm">{teslaAccount.user.email}</p>
-              )}
-              <Badge variant="outline" className="mt-1">
-                Regione: {teslaAccount.region}
-              </Badge>
+              <div className="space-y-1 border-t border-border pt-2">
+                <p className="font-medium">
+                  {teslaAccount.user.full_name || "—"}
+                </p>
+                {teslaAccount.user.email && (
+                  <p className="text-muted-foreground text-sm">{teslaAccount.user.email}</p>
+                )}
+                {teslaAccount.user.id != null && (
+                  <p className="text-muted-foreground font-mono text-xs">
+                    ID account: {teslaAccount.user.id}
+                  </p>
+                )}
+              </div>
             </CardContent>
           </Card>
           <Card>
@@ -131,6 +146,61 @@ export async function DashboardContent({ teslaError }: DashboardContentProps) {
                     </li>
                   ))}
                 </ul>
+              )}
+            </CardContent>
+          </Card>
+          <Card>
+            <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
+              <CardTitle className="text-sm font-medium">Ordini</CardTitle>
+              <Package className="text-muted-foreground h-4 w-4" />
+            </CardHeader>
+            <CardContent>
+              {teslaAccount.orders == null ||
+              (Array.isArray(teslaAccount.orders) && teslaAccount.orders.length === 0) ? (
+                <p className="text-muted-foreground text-sm">
+                  Nessun ordine attivo o dati non disponibili.
+                </p>
+              ) : Array.isArray(teslaAccount.orders) ? (
+                <ul className="space-y-2">
+                  {teslaAccount.orders.map((order: Record<string, unknown>, i: number) => (
+                    <li
+                      key={i}
+                      className="rounded-md border border-border bg-muted/30 px-3 py-2 text-sm"
+                    >
+                      {order.order_id != null && (
+                        <span className="font-mono text-xs text-muted-foreground">
+                          #{String(order.order_id)}
+                        </span>
+                      )}
+                      {order.status != null && (
+                        <Badge variant="secondary" className="ml-2">
+                          {String(order.status)}
+                        </Badge>
+                      )}
+                      {order.model != null && (
+                        <p className="mt-1 font-medium">{String(order.model)}</p>
+                      )}
+                      {order.vin != null && (
+                        <p className="font-mono text-xs text-muted-foreground">
+                          VIN: {String(order.vin)}
+                        </p>
+                      )}
+                      {Object.keys(order).length > 0 &&
+                        order.order_id == null &&
+                        order.status == null &&
+                        order.model == null &&
+                        order.vin == null && (
+                          <pre className="mt-1 overflow-x-auto text-xs">
+                            {JSON.stringify(order, null, 2)}
+                          </pre>
+                        )}
+                    </li>
+                  ))}
+                </ul>
+              ) : (
+                <pre className="overflow-x-auto rounded border border-border bg-muted/30 p-2 text-xs">
+                  {JSON.stringify(teslaAccount.orders, null, 2)}
+                </pre>
               )}
             </CardContent>
           </Card>

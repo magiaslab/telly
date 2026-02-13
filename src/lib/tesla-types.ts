@@ -62,3 +62,8 @@ export interface TeslaUserMeResponse {
 export interface TeslaRegionResponse {
   response: { region: "NA" | "EU" | "CN" };
 }
+
+/** GET /api/1/users/orders — ordini attivi (forma non documentata in dettaglio) */
+export interface TeslaOrdersResponse {
+  response?: unknown;
+}

@@ -7,6 +7,7 @@ import {
   getTeslaRegion,
   getTeslaUserMe,
   listVehicles,
+  getTeslaOrders,
   getTeslaFleetBaseUrl,
 } from "@/lib/tesla-api";
 
@@ -129,7 +130,7 @@ export async function getSavingsForBarChart(weeks = 4) {
   }
 }
 
-/** Profilo Tesla + lista veicoli (senza VIN). Richiede token da cookie o env. */
+/** Profilo Tesla + lista veicoli + ordini (senza VIN). Richiede token da cookie o env. */
 export async function getTeslaAccountAndVehicles(): Promise<{
   user: { id: number; email?: string; full_name?: string; profile_image_url?: string };
   region: string;
@@ -141,6 +142,7 @@ export async function getTeslaAccountAndVehicles(): Promise<{
     state?: string;
     option_codes?: string;
   }>;
+  orders: unknown;
 } | null> {
   const cookieStore = await cookies();
   const refreshToken =
@@ -153,15 +155,17 @@ export async function getTeslaAccountAndVehicles(): Promise<{
     const region = regionRes.response?.region ?? "NA";
     const baseUrl = getTeslaFleetBaseUrl(region === "EU" ? "EU" : "NA");
 
-    const [meRes, vehiclesRes] = await Promise.all([
+    const [meRes, vehiclesRes, ordersRes] = await Promise.all([
       getTeslaUserMe(accessToken, baseUrl),
       listVehicles(accessToken, baseUrl),
+      getTeslaOrders(accessToken, baseUrl).catch(() => ({ response: null })),
     ]);
 
     return {
       user: meRes.response ?? { id: 0 },
       region,
       vehicles: vehiclesRes.response ?? [],
+      orders: ordersRes.response ?? null,
     };
   } catch {
     return null;
