@@ -1,9 +1,9 @@
+import { Suspense } from "react";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
-import { TeslaSigninForm } from "@/components/login/tesla-signin-form";
+import { CredentialsSigninForm } from "@/components/login/credentials-signin-form";
 
 /**
- * Login con form POST nativo a NextAuth (evita CORS su auth.tesla.com).
- * Il CSRF viene richiesto dal browser (client) così il cookie viene impostato correttamente.
+ * Login con email e password. Il collegamento Tesla si fa dall’app (env o da dashboard).
  */
 export default function LoginPage() {
   return (
@@ -12,11 +12,13 @@ export default function LoginPage() {
         <CardHeader>
           <CardTitle>Accedi a Telly</CardTitle>
           <CardDescription>
-            Usa il tuo account Tesla per entrare nella dashboard
+            Inserisci email e password. Puoi collegare Tesla dalla dashboard.
           </CardDescription>
         </CardHeader>
         <CardContent>
-          <TeslaSigninForm />
+          <Suspense fallback={<div className="text-muted-foreground text-sm">Caricamento…</div>}>
+            <CredentialsSigninForm />
+          </Suspense>
         </CardContent>
       </Card>
     </div>

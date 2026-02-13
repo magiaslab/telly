@@ -21,9 +21,6 @@ import { Car, Gauge, MapPin, Package, User, Zap } from "lucide-react";
 import { DashboardHeader } from "@/components/dashboard/dashboard-header";
 import { VehicleMap } from "@/components/dashboard/vehicle-map";
 import { VehicleConfiguratorCarousel } from "@/components/dashboard/vehicle-configurator-carousel";
-import { Button } from "@/components/ui/button";
-import Link from "next/link";
-import { Link2 } from "lucide-react";
 
 const DIESEL_EUR_PER_L = 1.75;
 const DIESEL_KM_PER_L = 15;
@@ -42,14 +39,14 @@ const TESLA_ERROR_MESSAGES: Record<string, string> = {
 
 type DashboardContentProps = { teslaError?: string };
 
-/** Card per "Accedi di nuovo con Tesla": link a /login (dove il form ha CSRF dal browser). */
+/** Card quando i dati Tesla non sono disponibili: token da env o da collegare dall’app. */
 function TeslaReconnectCard({ teslaError }: { teslaError?: string }) {
   return (
     <Card>
       <CardHeader>
         <CardTitle className="text-base">Dati Tesla non disponibili</CardTitle>
         <CardDescription>
-          Accedi di nuovo con Tesla per aggiornare profilo, veicoli e ordini.
+          Per profilo, veicoli e ordini Tesla imposta <code className="rounded bg-muted px-1">TESLA_REFRESH_TOKEN</code> nelle variabili d’ambiente, oppure collegherai l’account Tesla dall’app.
         </CardDescription>
       </CardHeader>
       <CardContent className="space-y-4">
@@ -58,12 +55,6 @@ function TeslaReconnectCard({ teslaError }: { teslaError?: string }) {
             {TESLA_ERROR_MESSAGES[teslaError] ?? `Errore: ${teslaError}`}
           </div>
         )}
-        <Button asChild className="gap-2">
-          <Link href="/login">
-            <Link2 className="h-4 w-4" />
-            Accedi di nuovo con Tesla
-          </Link>
-        </Button>
       </CardContent>
     </Card>
   );
