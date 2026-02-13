@@ -10,7 +10,7 @@ export default function LoginPage() {
     <div className="flex min-h-screen items-center justify-center px-4">
       <Card className="w-full max-w-sm">
         <CardHeader>
-          <CardTitle>Accedi a Pulse</CardTitle>
+          <CardTitle>Accedi a Telly</CardTitle>
           <CardDescription>Dashboard Tesla · Inserisci email e password</CardDescription>
         </CardHeader>
         <CardContent>

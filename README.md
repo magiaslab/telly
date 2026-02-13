@@ -1,4 +1,4 @@
-# Pulse · Tesla Dashboard
+# Telly · by codecip Alessandro Cipriani
 
 Dashboard read-only per **Tesla Model Y LR RWD** con Next.js 15 (App Router), React 19, Tesla Fleet API e Neon PostgreSQL.
 
@@ -46,6 +46,16 @@ Dashboard read-only per **Tesla Model Y LR RWD** con Next.js 15 (App Router), Re
 - **Registrazione:** `/signup` → `POST /api/signup` (password con bcrypt).
 - **Middleware:** reindirizza a `/login` su `/` e `/dashboard` se non autenticato.
 - **Pagine:** `/login`, `/signup`; pulsante **Esci** in dashboard.
+
+## PWA
+
+L’app è installabile come **Progressive Web App** (Aggiungi a Home / Install app):
+
+- **Manifest:** `src/app/manifest.ts` → servito come `/manifest.webmanifest` (nome, icone, theme scuro, `display: standalone`).
+- **Icona:** `public/icon.svg` (Telly su sfondo scuro); usata per favicon e Apple touch icon.
+- **Viewport e theme:** `viewport` e `themeColor` in layout per barra di stato e fullscreen su iOS/Android.
+
+Requisiti: sito in **HTTPS**. Su iOS: Safari → Condividi → “Aggiungi a Home”. Su Chrome/Edge: icona “Installa” nella barra degli indirizzi.
 
 ## API
 
