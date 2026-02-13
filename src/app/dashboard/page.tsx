@@ -9,10 +9,7 @@ type PageProps = {
 };
 
 export default async function DashboardPage(props: PageProps) {
-  const searchParams =
-    typeof props.searchParams.then === "function"
-      ? await props.searchParams
-      : props.searchParams;
+  const searchParams = await Promise.resolve(props.searchParams);
   return (
     <Suspense fallback={<DashboardLoading />}>
       <DashboardContent teslaError={searchParams.tesla_error} />
