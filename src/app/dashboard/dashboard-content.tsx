@@ -22,6 +22,7 @@ import { DashboardHeader } from "@/components/dashboard/dashboard-header";
 import { VehicleMap } from "@/components/dashboard/vehicle-map";
 import { VehicleConfiguratorCarousel } from "@/components/dashboard/vehicle-configurator-carousel";
 import { TeslaConnectButton } from "@/components/dashboard/tesla-connect-button";
+import { TeslaPasteTokenForm } from "@/components/dashboard/tesla-paste-token-form";
 
 const DIESEL_EUR_PER_L = 1.75;
 const DIESEL_KM_PER_L = 15;
@@ -56,7 +57,13 @@ function TeslaReconnectCard({ teslaError }: { teslaError?: string }) {
             {TESLA_ERROR_MESSAGES[teslaError] ?? `Errore: ${teslaError}`}
           </div>
         )}
-        <TeslaConnectButton />
+        <div className="flex flex-wrap items-center gap-2">
+          <TeslaConnectButton />
+          <span className="text-muted-foreground text-xs">oppure incolla il token sotto</span>
+        </div>
+        <div className="border-t pt-4">
+          <TeslaPasteTokenForm />
+        </div>
       </CardContent>
     </Card>
   );
