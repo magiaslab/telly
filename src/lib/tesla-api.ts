@@ -16,10 +16,11 @@ export function getTeslaFleetBaseUrl(region: "NA" | "EU" = "NA"): string {
 }
 
 const TESLA_API_BASE = TESLA_API_BASE_NA;
-const TESLA_AUTH_BASE = "https://auth.tesla.com/oauth2/v3";
+/** Token endpoint: secondo la guida Tesla va usato fleet-auth per code exchange e refresh. */
+const TESLA_TOKEN_URL = "https://fleet-auth.prd.vn.cloud.tesla.com/oauth2/v3/token";
 
 export async function getTeslaAccessToken(refreshToken: string): Promise<string> {
-  const res = await fetch(`${TESLA_AUTH_BASE}/token`, {
+  const res = await fetch(TESLA_TOKEN_URL, {
     method: "POST",
     headers: { "Content-Type": "application/x-www-form-urlencoded" },
     body: new URLSearchParams({

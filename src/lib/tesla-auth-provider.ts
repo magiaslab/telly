@@ -1,6 +1,9 @@
 /**
- * Provider OAuth Tesla per NextAuth: unico login a Telly con account Tesla.
- * Token exchange su fleet-auth con audience; profilo da GET /api/1/users/me.
+ * Provider OAuth Tesla per NextAuth (Third-Party Tokens).
+ * Guida: https://developer.tesla.com/docs/fleet-api/authentication/third-party-tokens
+ * - Authorize: auth.tesla.com/oauth2/v3/authorize
+ * - Token (code + refresh): fleet-auth.prd.vn.cloud.tesla.com/oauth2/v3/token
+ * - Audience: Fleet API base URL (NA/EU); userinfo da /api/1/users/me.
  */
 import { customFetch } from "next-auth";
 import type { OAuthConfig, OAuthUserConfig } from "next-auth/providers";
