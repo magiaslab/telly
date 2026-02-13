@@ -42,8 +42,9 @@ export default function Tesla(
         params: { code?: string };
         provider: { clientId?: string; clientSecret?: string; callbackUrl: string };
       }) {
-        const clientId = provider.clientId ?? process.env.TESLA_CLIENT_ID;
-        const clientSecret = provider.clientSecret ?? process.env.TESLA_CLIENT_SECRET;
+        // Leggi a runtime da process.env (su Vercel il provider può essere inizializzato senza env)
+        const clientId = process.env.TESLA_CLIENT_ID ?? provider.clientId;
+        const clientSecret = process.env.TESLA_CLIENT_SECRET ?? provider.clientSecret;
         const redirectUri = provider.callbackUrl;
         if (!clientId || !clientSecret || !redirectUri) {
           const msg = "Tesla OAuth: missing clientId, clientSecret or callbackUrl";
