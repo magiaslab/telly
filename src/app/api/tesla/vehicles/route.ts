@@ -1,27 +1,22 @@
-import { cookies } from "next/headers";
+import { NextRequest } from "next/server";
 import {
   getTeslaAccessToken,
   getTeslaRegion,
   listVehicles,
   getTeslaFleetBaseUrl,
 } from "@/lib/tesla-api";
+import { getTeslaRefreshToken } from "@/lib/tesla-refresh-token";
 
 /**
- * GET /api/tesla/vehicles — Lista veicoli Tesla dell'account (senza VIN in input).
- * Token: cookie tesla_refresh_token o env TESLA_REFRESH_TOKEN.
- * Restituisce id, vin, display_name, state per ogni veicolo.
+ * GET /api/tesla/vehicles — Lista veicoli Tesla (senza VIN in input).
+ * Token: JWT (login Tesla), cookie o env.
  */
-export async function GET() {
-  const cookieStore = await cookies();
-  const refreshToken =
-    cookieStore.get("tesla_refresh_token")?.value ?? process.env.TESLA_REFRESH_TOKEN;
+export async function GET(request: NextRequest) {
+  const refreshToken = await getTeslaRefreshToken(request);
 
   if (!refreshToken) {
     return Response.json(
-      {
-        error:
-          "Missing Tesla refresh token (cookie tesla_refresh_token or env TESLA_REFRESH_TOKEN)",
-      },
+      { error: "Accedi con Tesla da /login." },
       { status: 401 }
     );
   }

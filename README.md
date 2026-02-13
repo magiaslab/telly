@@ -27,7 +27,7 @@ Dashboard read-only per **Tesla Model Y LR RWD** con Next.js 15 (App Router), Re
      - `TESLA_CLIENT_ID` / `TESLA_CLIENT_SECRET` – da [Tesla Developer](https://developer.tesla.com) (piano Personal Use, ~10€/mese di credito)
      - `TESLA_REFRESH_TOKEN` – da flusso OAuth (authorization code → token → `refresh_token`)
      - `AUTH_SECRET` – segreto NextAuth (es. `openssl rand -base64 32`)
-     - Per Tesla (se non usi solo mock): `TESLA_CLIENT_ID`, `TESLA_CLIENT_SECRET`, `TESLA_REDIRECT_URI` (produzione: `https://telly.codecip.it/api/auth/tesla/callback`). Opzionale: `TESLA_REFRESH_TOKEN` (altrimenti collega dalla dashboard), `TESLA_VIN`
+     - Per Tesla (login + Fleet API): `TESLA_CLIENT_ID`, `TESLA_CLIENT_SECRET`, `NEXTAUTH_URL` (es. `https://telly.codecip.it`). Opzionale: `TESLA_REFRESH_TOKEN`, `TESLA_VIN`
 
 3. **Database**
    ```bash
@@ -41,21 +41,12 @@ Dashboard read-only per **Tesla Model Y LR RWD** con Next.js 15 (App Router), Re
    ```
    Apri [http://localhost:3000](http://localhost:3000) → redirect a `/dashboard`.
 
-## Auth (Neon)
+## Auth (login unico Tesla)
 
-- **NextAuth v5** con Drizzle: utenti e sessioni su Neon.
-- **Login** (Credentials): email + password; sessioni in DB.
-- **Registrazione:** `/signup` → `POST /api/signup` (password con bcrypt).
-- **Middleware:** reindirizza a `/login` su `/` e `/dashboard` se non autenticato.
-- **Pagine:** `/login`, `/signup`; pulsante **Esci** in dashboard.
-
-## Collega account Tesla (dalla dashboard)
-
-Se l’account Tesla non è ancora collegato, in dashboard compare la card **«Collega il tuo account Tesla»** con un pulsante. Procedura:
-
-1. Su [Tesla Developer](https://developer.tesla.com) → Credenziali e API: imposta **URI di reindirizzamento** uguale a `TESLA_REDIRECT_URI` (produzione: `https://telly.codecip.it/api/auth/tesla/callback`; in locale: `http://localhost:3000/api/auth/tesla/callback`).
-2. In `.env` imposta `TESLA_CLIENT_ID`, `TESLA_CLIENT_SECRET` e `TESLA_REDIRECT_URI` (stesso valore usato su developer.tesla.com).
-3. Dalla dashboard clicca **«Collega account Tesla»** → login Tesla → autorizza l’app → redirect in dashboard con profilo e veicoli visibili. Il refresh token viene salvato in un cookie (`tesla_refresh_token`).
+- **NextAuth v5** con **un solo provider: Tesla OAuth**. Niente email/password: si accede a Telly solo con l’account Tesla.
+- **Login:** `/login` → pulsante **«Accedi con Tesla»** → OAuth Tesla → redirect a `/dashboard`. Il refresh token Tesla è salvato nel JWT di sessione.
+- **Middleware:** reindirizza a `/login` su `/` e `/dashboard` se non autenticato. `/signup` reindirizza a `/login`.
+- **Configurazione:** imposta `NEXTAUTH_URL` (es. `https://telly.codecip.it`). Su [Tesla Developer](https://developer.tesla.com) → Credenziali e API: **URI di reindirizzamento** = `NEXTAUTH_URL` + `/api/auth/callback/tesla` (es. `https://telly.codecip.it/api/auth/callback/tesla`).
 
 ## PWA
 

@@ -130,8 +130,7 @@ export async function getSavingsForBarChart(weeks = 4) {
   }
 }
 
-/** Profilo Tesla + lista veicoli + ordini (senza VIN). Richiede token da cookie o env. */
-export async function getTeslaAccountAndVehicles(): Promise<{
+export type TeslaAccountData = {
   user: { id: number; email?: string; full_name?: string; profile_image_url?: string };
   region: string;
   vehicles: Array<{
@@ -143,12 +142,12 @@ export async function getTeslaAccountAndVehicles(): Promise<{
     option_codes?: string;
   }>;
   orders: unknown;
-} | null> {
-  const cookieStore = await cookies();
-  const refreshToken =
-    cookieStore.get("tesla_refresh_token")?.value ?? process.env.TESLA_REFRESH_TOKEN;
-  if (!refreshToken) return null;
+};
 
+/** Dati account Tesla dato un refresh token (usato da API route e da fetch dashboard). */
+export async function fetchTeslaAccountData(
+  refreshToken: string
+): Promise<TeslaAccountData | null> {
   try {
     const accessToken = await getTeslaAccessToken(refreshToken);
     const regionRes = await getTeslaRegion(accessToken);
@@ -170,4 +169,18 @@ export async function getTeslaAccountAndVehicles(): Promise<{
   } catch {
     return null;
   }
+}
+
+/** Profilo Tesla + veicoli + ordini. In login Tesla legge il token da JWT (via /api/tesla/account), altrimenti cookie/env. */
+export async function getTeslaAccountAndVehicles(): Promise<TeslaAccountData | null> {
+  const base =
+    process.env.NEXTAUTH_URL ||
+    (process.env.VERCEL_URL ? `https://${process.env.VERCEL_URL}` : "http://localhost:3000");
+  const cookieStore = await cookies();
+  const res = await fetch(`${base}/api/tesla/account`, {
+    headers: { Cookie: cookieStore.toString() },
+    cache: "no-store",
+  });
+  if (!res.ok) return null;
+  return res.json();
 }

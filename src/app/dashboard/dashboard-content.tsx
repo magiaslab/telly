@@ -22,8 +22,8 @@ import { DashboardHeader } from "@/components/dashboard/dashboard-header";
 import { VehicleMap } from "@/components/dashboard/vehicle-map";
 import { VehicleConfiguratorCarousel } from "@/components/dashboard/vehicle-configurator-carousel";
 import { Button } from "@/components/ui/button";
-import Link from "next/link";
 import { Link2 } from "lucide-react";
+import { cookies, headers } from "next/headers";
 
 const DIESEL_EUR_PER_L = 1.75;
 const DIESEL_KM_PER_L = 15;
@@ -41,6 +41,51 @@ const TESLA_ERROR_MESSAGES: Record<string, string> = {
 };
 
 type DashboardContentProps = { teslaError?: string };
+
+/** Card con form POST nativo per "Accedi di nuovo con Tesla" (evita CORS da fetch). */
+async function TeslaReconnectCard({ teslaError }: { teslaError?: string }) {
+  const cookieStore = await cookies();
+  const headersList = await headers();
+  const origin = headersList.get("x-forwarded-host")
+    ? `${headersList.get("x-forwarded-proto") ?? "https"}://${headersList.get("x-forwarded-host")}`
+    : process.env.NEXTAUTH_URL ?? "http://localhost:3000";
+  let csrfToken = "";
+  try {
+    const res = await fetch(`${origin}/api/auth/csrf`, {
+      headers: { Cookie: cookieStore.toString() },
+      cache: "no-store",
+    });
+    const data = await res.json();
+    csrfToken = data.token ?? "";
+  } catch {
+    // ignore
+  }
+  return (
+    <Card>
+      <CardHeader>
+        <CardTitle className="text-base">Dati Tesla non disponibili</CardTitle>
+        <CardDescription>
+          Accedi di nuovo con Tesla per aggiornare profilo, veicoli e ordini.
+        </CardDescription>
+      </CardHeader>
+      <CardContent className="space-y-4">
+        {teslaError && (
+          <div className="rounded-md border border-destructive/50 bg-destructive/10 px-3 py-2 text-sm text-destructive">
+            {TESLA_ERROR_MESSAGES[teslaError] ?? `Errore: ${teslaError}`}
+          </div>
+        )}
+        <form action="/api/auth/signin/tesla" method="POST" className="inline-block">
+          <input type="hidden" name="csrfToken" value={csrfToken} />
+          <input type="hidden" name="callbackUrl" value="/dashboard" />
+          <Button type="submit" className="gap-2">
+            <Link2 className="h-4 w-4" />
+            Accedi di nuovo con Tesla
+          </Button>
+        </form>
+      </CardContent>
+    </Card>
+  );
+}
 
 export async function DashboardContent({ teslaError }: DashboardContentProps) {
   const [latest, chartData, cost, savingsChart, teslaAccount] = await Promise.all([
@@ -206,33 +251,7 @@ export async function DashboardContent({ teslaError }: DashboardContentProps) {
           </Card>
         </div>
       ) : (
-        <Card>
-          <CardHeader>
-            <CardTitle className="text-base">Collega il tuo account Tesla</CardTitle>
-            <CardDescription>
-              Per vedere profilo, veicoli e sincronizzare i dati dalla Fleet API.
-            </CardDescription>
-          </CardHeader>
-          <CardContent className="space-y-4">
-            {teslaError && (
-              <div className="rounded-md border border-destructive/50 bg-destructive/10 px-3 py-2 text-sm text-destructive">
-                {TESLA_ERROR_MESSAGES[teslaError] ?? `Errore: ${teslaError}`}
-              </div>
-            )}
-            <ol className="list-inside list-decimal space-y-1 text-muted-foreground text-sm">
-              <li>Clicca il pulsante qui sotto.</li>
-              <li>Accedi con il tuo account Tesla (se non sei già loggato).</li>
-              <li>Autorizza l’app (profilo e dati veicolo).</li>
-              <li>Verrai reindirizzato alla dashboard con l’account collegato.</li>
-            </ol>
-            <Button asChild className="gap-2">
-              <Link href="/api/auth/tesla/connect">
-                <Link2 className="h-4 w-4" />
-                Collega account Tesla
-              </Link>
-            </Button>
-          </CardContent>
-        </Card>
+        <TeslaReconnectCard teslaError={teslaError} />
       )}
 
       <Card className="overflow-hidden">

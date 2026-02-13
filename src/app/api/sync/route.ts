@@ -1,7 +1,7 @@
 import { NextRequest } from "next/server";
-import { cookies } from "next/headers";
 import { eq, desc } from "drizzle-orm";
 import { getTeslaAccessToken, getVehicleData } from "@/lib/tesla-api";
+import { getTeslaRefreshToken } from "@/lib/tesla-refresh-token";
 import { db, telemetries, chargingEvents } from "@/db";
 import { insertTelemetrySchema } from "@/db/schema.zod";
 import { useMock, getEffectiveVin } from "@/lib/use-mock";
@@ -44,12 +44,10 @@ export async function GET(request: NextRequest) {
     });
     data = mockResponseToValidatedShape(mockRes);
   } else {
-    const cookieStore = await cookies();
-    const refreshToken =
-      cookieStore.get("tesla_refresh_token")?.value ?? process.env.TESLA_REFRESH_TOKEN;
+    const refreshToken = await getTeslaRefreshToken(request);
     if (!refreshToken) {
       return Response.json(
-        { error: "Missing Tesla refresh token (cookie tesla_refresh_token or env TESLA_REFRESH_TOKEN)" },
+        { error: "Accedi con Tesla da /login per sincronizzare." },
         { status: 401 }
       );
     }

@@ -1,60 +1,50 @@
-import { signIn } from "@/auth";
+import { cookies, headers } from "next/headers";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
-import { Input } from "@/components/ui/input";
-import { Label } from "@/components/ui/label";
-import Link from "next/link";
 
-export default function LoginPage() {
+/**
+ * Login con form POST nativo a NextAuth (evita fetch → redirect che causa CORS su auth.tesla.com).
+ * Il CSRF viene letto lato server; il submit è una navigazione completa.
+ */
+export default async function LoginPage() {
+  const cookieStore = await cookies();
+  const headersList = await headers();
+  const origin = headersList.get("x-forwarded-host")
+    ? `${headersList.get("x-forwarded-proto") ?? "https"}://${headersList.get("x-forwarded-host")}`
+    : process.env.NEXTAUTH_URL ?? "http://localhost:3000";
+
+  let csrfToken = "";
+  try {
+    const res = await fetch(`${origin}/api/auth/csrf`, {
+      headers: { Cookie: cookieStore.toString() },
+      cache: "no-store",
+    });
+    const data = await res.json();
+    csrfToken = data.token ?? "";
+  } catch {
+    // fallback: form senza CSRF (NextAuth potrebbe rifiutare; in dev può funzionare)
+  }
+
   return (
     <div className="flex min-h-screen items-center justify-center px-4">
       <Card className="w-full max-w-sm">
         <CardHeader>
           <CardTitle>Accedi a Telly</CardTitle>
-          <CardDescription>Dashboard Tesla · Inserisci email e password</CardDescription>
+          <CardDescription>
+            Usa il tuo account Tesla per entrare nella dashboard
+          </CardDescription>
         </CardHeader>
         <CardContent>
           <form
+            action="/api/auth/signin/tesla"
+            method="POST"
             className="flex flex-col gap-4"
-            action={async (formData) => {
-              "use server";
-              await signIn("credentials", {
-                email: formData.get("email") as string,
-                password: formData.get("password") as string,
-                redirectTo: "/dashboard",
-              });
-            }}
           >
-            <div className="grid gap-2">
-              <Label htmlFor="email">Email</Label>
-              <Input
-                id="email"
-                name="email"
-                type="email"
-                placeholder="tu@email.com"
-                required
-                autoComplete="email"
-              />
-            </div>
-            <div className="grid gap-2">
-              <Label htmlFor="password">Password</Label>
-              <Input
-                id="password"
-                name="password"
-                type="password"
-                required
-                autoComplete="current-password"
-              />
-            </div>
-            <Button type="submit" className="w-full">
-              Accedi
+            <input type="hidden" name="csrfToken" value={csrfToken} />
+            <input type="hidden" name="callbackUrl" value="/dashboard" />
+            <Button type="submit" className="w-full" size="lg">
+              Accedi con Tesla
             </Button>
-            <p className="text-muted-foreground text-center text-sm">
-              Non hai un account?{" "}
-              <Link href="/signup" className="underline hover:text-foreground">
-                Registrati
-              </Link>
-            </p>
           </form>
         </CardContent>
       </Card>

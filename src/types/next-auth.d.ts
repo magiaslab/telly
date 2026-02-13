@@ -7,3 +7,9 @@ declare module "next-auth" {
     } & import("next-auth").DefaultSession["user"];
   }
 }
+
+declare module "next-auth/jwt" {
+  interface JWT {
+    tesla_refresh_token?: string;
+  }
+}
