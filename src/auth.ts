@@ -51,10 +51,10 @@ export const { handlers, auth, signIn, signOut } = NextAuth({
     },
     session({ session, token }) {
       if (session.user) {
-        session.user.id = token.sub ?? undefined;
-        session.user.email = token.email ?? undefined;
-        session.user.name = token.name ?? undefined;
-        session.user.image = token.picture ?? undefined;
+        if (token.sub) session.user.id = token.sub;
+        if (token.email != null) session.user.email = token.email;
+        if (token.name != null) session.user.name = token.name;
+        if (token.picture != null) session.user.image = token.picture;
       }
       return session;
     },
