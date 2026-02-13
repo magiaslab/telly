@@ -15,7 +15,7 @@ export function TeslaSigninForm() {
     fetch("/api/auth/csrf", { credentials: "same-origin" })
       .then((res) => res.json())
       .then((data) => {
-        setCsrfToken(data.token ?? "");
+        setCsrfToken(data.csrfToken ?? data.token ?? "");
       })
       .catch(() => {})
       .finally(() => setLoading(false));
