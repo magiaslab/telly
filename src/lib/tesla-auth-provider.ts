@@ -120,6 +120,14 @@ export default function Tesla(
       };
     },
     style: { brandColor: "#cc0000" },
-    options,
+    ...options,
+    // Auth.js usa provider.clientId/clientSecret per il token exchange (oauth4webapi), non token.request.
+    // Getter così su Vercel vengono letti a runtime quando parte il callback.
+    get clientId() {
+      return process.env.TESLA_CLIENT_ID ?? (options as { clientId?: string }).clientId;
+    },
+    get clientSecret() {
+      return process.env.TESLA_CLIENT_SECRET ?? (options as { clientSecret?: string }).clientSecret;
+    },
   };
 }
