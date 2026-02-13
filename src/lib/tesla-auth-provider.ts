@@ -62,6 +62,7 @@ export default function Tesla(
     id: "tesla",
     name: "Tesla",
     type: "oauth",
+    checks: ["state"],
     authorization: {
       url: TESLA_AUTHORIZE,
       params: {
