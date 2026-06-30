@@ -6,6 +6,7 @@ import {
   getTeslaAccountAndVehicles,
   getWallboxData,
 } from "./data";
+import { getOctopusData } from "@/lib/octopus-api";
 import {
   Card,
   CardContent,
@@ -18,7 +19,7 @@ import { BatteryIcon } from "@/components/dashboard/battery-icon";
 import { EnergyChart } from "@/components/dashboard/energy-chart";
 import { SavingsBarChart } from "@/components/dashboard/savings-barchart";
 import { SyncButton } from "@/components/dashboard/sync-button";
-import { Car, Gauge, MapPin, Package, Plug, User, Zap } from "lucide-react";
+import { Car, Gauge, Leaf, MapPin, Package, Plug, User, Zap } from "lucide-react";
 import { DashboardHeader } from "@/components/dashboard/dashboard-header";
 import { VehicleMap } from "@/components/dashboard/vehicle-map";
 import { VehicleConfiguratorCarousel } from "@/components/dashboard/vehicle-configurator-carousel";
@@ -72,13 +73,14 @@ function TeslaReconnectCard({ teslaError }: { teslaError?: string }) {
 }
 
 export async function DashboardContent({ teslaError, teslaLinked }: DashboardContentProps) {
-  const [latest, chartData, cost, savingsChart, teslaAccount, wallbox] = await Promise.all([
+  const [latest, chartData, cost, savingsChart, teslaAccount, wallbox, octopus] = await Promise.all([
     getLatestTelemetry(),
     getTelemetriesForChart(7),
     getChargingCostThisMonth(),
     getSavingsForBarChart(4),
     getTeslaAccountAndVehicles(),
     getWallboxData(10),
+    getOctopusData(),
   ]);
 
   const dateFmt = new Intl.DateTimeFormat("it-IT", {
@@ -411,6 +413,99 @@ export async function DashboardContent({ teslaError, teslaLinked }: DashboardCon
                 </p>
               )}
             </div>
+          </CardContent>
+        </Card>
+      )}
+
+      {octopus.configured && (
+        <Card>
+          <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
+            <div>
+              <CardTitle className="flex items-center gap-2">
+                <Leaf className="h-4 w-4 text-green-600 dark:text-green-400" /> Octopus Energy
+              </CardTitle>
+              <CardDescription>
+                {octopus.tariff
+                  ? `${octopus.tariff.productName} · POD ${octopus.tariff.pod}`
+                  : "Dati tariffa non disponibili"}
+              </CardDescription>
+            </div>
+            <Badge variant="outline">Account {octopus.accountNumber}</Badge>
+          </CardHeader>
+          <CardContent className="space-y-6">
+            {octopus.tariff && (
+              <div className="flex flex-wrap gap-6">
+                <div>
+                  <p className="text-muted-foreground text-sm">Materia energia</p>
+                  <p className="text-2xl font-bold tabular-nums">
+                    {octopus.tariff.unitRateEurPerKwh.toFixed(5)} €/kWh
+                  </p>
+                  <p className="text-muted-foreground text-xs">
+                    {octopus.tariff.productType === "FIXED_SINGLE_RATE"
+                      ? "Prezzo fisso monorario"
+                      : octopus.tariff.productType}
+                  </p>
+                </div>
+                <div>
+                  <p className="text-muted-foreground text-sm">Quota fissa</p>
+                  <p className="text-2xl font-bold tabular-nums">
+                    {octopus.tariff.annualStandingChargeEur.toFixed(0)} €/anno
+                  </p>
+                  <p className="text-muted-foreground text-xs">
+                    {octopus.tariff.isSmartMeter ? "Contatore smart" : "Contatore tradizionale"}
+                  </p>
+                </div>
+              </div>
+            )}
+
+            {octopus.device && (
+              <div className="rounded-lg border border-green-500/30 bg-green-500/5 p-4">
+                <div className="flex flex-wrap items-center justify-between gap-2">
+                  <div className="flex items-center gap-2">
+                    <Zap className="h-4 w-4 text-green-600 dark:text-green-400" />
+                    <span className="font-medium">Intelligent Octopus</span>
+                    <Badge variant="secondary">{octopus.device.name}</Badge>
+                  </div>
+                  {octopus.plannedDispatches.length > 0 ? (
+                    <Badge className="bg-green-600 hover:bg-green-700">
+                      {octopus.plannedDispatches.length} ricariche pianificate
+                    </Badge>
+                  ) : (
+                    <Badge variant="outline">Nessuna ricarica pianificata ora</Badge>
+                  )}
+                </div>
+                <div className="mt-4 flex flex-wrap gap-6">
+                  <div>
+                    <p className="text-muted-foreground text-sm">Energia smart (questo mese)</p>
+                    <p className="text-2xl font-bold tabular-nums">
+                      {octopus.monthSmartKwh.toFixed(1)} kWh
+                    </p>
+                  </div>
+                  <div>
+                    <p className="text-muted-foreground text-sm">Risparmio Intelligent (stima 30%)</p>
+                    <p className="text-2xl font-bold tabular-nums text-green-600 dark:text-green-400">
+                      {octopus.monthIntelligentSavingEur.toFixed(2)} €
+                    </p>
+                  </div>
+                </div>
+                {octopus.plannedDispatches.length > 0 && (
+                  <div className="mt-3 border-t border-green-500/20 pt-3">
+                    <p className="text-muted-foreground mb-1 text-xs">Prossime finestre di ricarica</p>
+                    <ul className="space-y-1 text-sm">
+                      {octopus.plannedDispatches.slice(0, 4).map((p, i) => (
+                        <li key={i} className="tabular-nums">
+                          {dateFmt.format(new Date(p.start))} → {dateFmt.format(new Date(p.end))}
+                        </li>
+                      ))}
+                    </ul>
+                  </div>
+                )}
+                <p className="text-muted-foreground mt-3 text-xs">
+                  Stima: 30% sull&apos;energia caricata nelle finestre Intelligent, calcolata sulla
+                  materia energia. Il valore in bolletta dipende dalle componenti regolate.
+                </p>
+              </div>
+            )}
           </CardContent>
         </Card>
       )}
