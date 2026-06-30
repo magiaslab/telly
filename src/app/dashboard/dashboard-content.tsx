@@ -7,6 +7,7 @@ import {
   getWallboxData,
 } from "./data";
 import { getOctopusData } from "@/lib/octopus-api";
+import { useMock } from "@/lib/use-mock";
 import {
   Card,
   CardContent,
@@ -99,6 +100,7 @@ export async function DashboardContent({ teslaError, teslaLinked }: DashboardCon
   const dieselCostEur = dieselLiters * DIESEL_EUR_PER_L;
   const savedVsDiesel = dieselCostEur - spentThisMonth;
 
+  const mockEnabled = useMock();
   const hasNoData = !latest && chartData.length === 0 && cost.events.length === 0;
 
   return (
@@ -110,10 +112,22 @@ export async function DashboardContent({ teslaError, teslaLinked }: DashboardCon
       )}
       {hasNoData && (
         <div className="bg-muted/50 border-border rounded-lg border px-4 py-3 text-sm">
-          <strong>Nessun dato in database.</strong> Crea le tabelle e carica i dati mock:{" "}
-          <code className="bg-muted rounded px-1.5 py-0.5">npm run db:push</code>
-          {" e "}
-          <code className="bg-muted rounded px-1.5 py-0.5">npm run seed</code>
+          {mockEnabled ? (
+            <>
+              <strong>Nessun dato in database.</strong> Crea le tabelle e carica i dati mock:{" "}
+              <code className="bg-muted rounded px-1.5 py-0.5">npm run db:push</code>
+              {" e "}
+              <code className="bg-muted rounded px-1.5 py-0.5">npm run seed</code>
+            </>
+          ) : (
+            <>
+              <strong>Nessuna telemetria per il tuo VIN.</strong> Il database contiene dati
+              storici solo del mock (altro VIN). Collega l&apos;account Tesla e premi{" "}
+              <strong>Sync</strong> o <strong>Forza sync</strong> per importare batteria, km e
+              posizione reali dalla Fleet API. In alternativa incolla il refresh token nel riquadro
+              sopra.
+            </>
+          )}
         </div>
       )}
       <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">

@@ -4,6 +4,7 @@ import { auth } from "@/auth";
 export default auth((req) => {
   const isLoggedIn = !!req.auth?.user;
   const isLoginPage = req.nextUrl.pathname === "/login";
+  const isTeslaBridge = req.nextUrl.pathname === "/auth/tesla-bridge";
   const isSignupPage = req.nextUrl.pathname === "/signup";
   const isAuthApi = req.nextUrl.pathname.startsWith("/api/auth");
 
@@ -14,7 +15,7 @@ export default auth((req) => {
     }
     return res;
   }
-  if (isSignupPage) return;
+  if (isSignupPage || isTeslaBridge) return;
   if (isLoginPage && isLoggedIn) {
     return Response.redirect(new URL("/dashboard", req.nextUrl));
   }
