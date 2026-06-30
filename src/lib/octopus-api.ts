@@ -12,6 +12,16 @@
  * - Compatibile con tariffa Fissa 12M / Flex e dispositivi Tesla, V2C Trydan, ecc.
  */
 
+import {
+  countStoredOctopusDispatches,
+  getOctopusMonthStatsFromDb,
+  getStoredOctopusDispatches,
+  upsertOctopusDispatches,
+  type OctopusDispatchSyncResult,
+} from "@/lib/octopus-dispatch-store";
+
+export type { OctopusDispatchSyncResult };
+
 const OCTOPUS_API_URL =
   process.env.OCTOPUS_API_URL || "https://api.oeit-kraken.energy/v1/graphql/";
 const OCTOPUS_EMAIL = process.env.OCTOPUS_EMAIL;
@@ -119,19 +129,22 @@ export type OctopusData = {
   accountNumber: string | null;
   tariff: OctopusTariff | null;
   device: OctopusDevice | null;
+  /** Ultime finestre dall'API Kraken (finestra breve). */
   completedDispatches: OctopusDispatch[];
+  /** Storico salvato in DB (ultime N finestre). */
+  storedDispatches: OctopusDispatch[];
+  storedDispatchCount: number;
   plannedDispatches: { start: string; end: string }[];
-  /**
-   * kWh ottimizzati nelle finestre Intelligent restituite dall'API (finestra breve, non mese intero).
-   * L'app Octopus mostra il totale in bolletta; qui abbiamo solo gli ultimi dispatch Kraken.
-   */
+  /** kWh ottimizzati nelle ultime finestre API (non storico completo). */
   recentSmartKwh: number;
   recentSmartEnergyCostEur: number;
   recentIntelligentSavingEur: number;
-  /** @deprecated usa recentSmartKwh */
+  /** Totali mese corrente (Europe/Rome) dallo storico DB. */
   monthSmartKwh: number;
   monthSmartEnergyCostEur: number;
   monthIntelligentSavingEur: number;
+  monthDispatchCount: number;
+  lastSyncAt: string | null;
   dispatchDataNote: string;
 };
 
@@ -262,7 +275,7 @@ async function fetchPlannedDispatches(
 }
 
 /** Somma kWh ottimizzati deduplicando finestre (start+end). delta negativo = carica. */
-function aggregateOptimizedKwh(dispatches: OctopusDispatch[]): number {
+export function aggregateOptimizedKwh(dispatches: OctopusDispatch[]): number {
   const byWindow = new Map<string, number>();
   for (const d of dispatches) {
     if (d.deltaKwh >= 0) continue;
@@ -274,16 +287,52 @@ function aggregateOptimizedKwh(dispatches: OctopusDispatch[]): number {
 }
 
 // ---------------------------------------------------------------------------
+// Sync storico Intelligent → DB
+// ---------------------------------------------------------------------------
+
+/** Scarica completedDispatches da Kraken e le salva in DB (upsert incrementale). */
+export async function syncOctopusCompletedDispatches(): Promise<
+  OctopusDispatchSyncResult & { accountNumber: string | null; unitRateEurPerKwh: number }
+> {
+  if (!isOctopusConfigured() || !OCTOPUS_ACCOUNT_NUMBER) {
+    return { fetched: 0, upserted: 0, skipped: 0, accountNumber: null, unitRateEurPerKwh: 0 };
+  }
+
+  const token = await getToken();
+  const [tariff, device, completed] = await Promise.all([
+    fetchTariff(token).catch(() => null),
+    fetchDevice(token).catch(() => null),
+    fetchCompletedDispatches(token),
+  ]);
+
+  const unitRate = tariff?.unitRateEurPerKwh ?? 0;
+  const result = await upsertOctopusDispatches(
+    OCTOPUS_ACCOUNT_NUMBER,
+    device?.id ?? null,
+    completed,
+    unitRate
+  );
+
+  return {
+    ...result,
+    accountNumber: OCTOPUS_ACCOUNT_NUMBER,
+    unitRateEurPerKwh: unitRate,
+  };
+}
+
+// ---------------------------------------------------------------------------
 // Aggregato per dashboard
 // ---------------------------------------------------------------------------
 
-export async function getOctopusData(): Promise<OctopusData> {
+export async function getOctopusData(options?: { sync?: boolean }): Promise<OctopusData> {
   const empty: OctopusData = {
     configured: isOctopusConfigured(),
     accountNumber: OCTOPUS_ACCOUNT_NUMBER ?? null,
     tariff: null,
     device: null,
     completedDispatches: [],
+    storedDispatches: [],
+    storedDispatchCount: 0,
     plannedDispatches: [],
     recentSmartKwh: 0,
     recentSmartEnergyCostEur: 0,
@@ -291,12 +340,18 @@ export async function getOctopusData(): Promise<OctopusData> {
     monthSmartKwh: 0,
     monthSmartEnergyCostEur: 0,
     monthIntelligentSavingEur: 0,
+    monthDispatchCount: 0,
+    lastSyncAt: null,
     dispatchDataNote:
-      "L'API Kraken espone solo le ultime finestre Intelligent completate (non il mese intero). Il totale in bolletta è nell'app Octopus.",
+      "Lo storico Intelligent si accumula in DB ad ogni sync (apertura dashboard o GET /api/octopus/sync). L'API Kraken espone solo le ultime finestre.",
   };
   if (!isOctopusConfigured()) return empty;
 
   try {
+    if (options?.sync !== false) {
+      await syncOctopusCompletedDispatches().catch(() => undefined);
+    }
+
     const token = await getToken();
     const [tariff, device, completed] = await Promise.all([
       fetchTariff(token).catch(() => null),
@@ -309,26 +364,44 @@ export async function getOctopusData(): Promise<OctopusData> {
       planned = await fetchPlannedDispatches(token, device.id).catch(() => []);
     }
 
-    // API completedDispatches: finestre recenti (non storico mensile completo).
     const recentSmartKwh = aggregateOptimizedKwh(completed);
-
     const unitRate = tariff?.unitRateEurPerKwh ?? 0;
     const recentSmartEnergyCostEur = recentSmartKwh * unitRate;
     const recentIntelligentSavingEur = recentSmartEnergyCostEur * INTELLIGENT_DISCOUNT;
+
+    let monthStats = {
+      energyKwh: 0,
+      energyCostEur: 0,
+      savingEur: 0,
+      dispatchCount: 0,
+    };
+    let storedDispatches: OctopusDispatch[] = [];
+    let storedDispatchCount = 0;
+
+    if (OCTOPUS_ACCOUNT_NUMBER) {
+      [monthStats, storedDispatches, storedDispatchCount] = await Promise.all([
+        getOctopusMonthStatsFromDb(OCTOPUS_ACCOUNT_NUMBER),
+        getStoredOctopusDispatches(OCTOPUS_ACCOUNT_NUMBER, 20),
+        countStoredOctopusDispatches(OCTOPUS_ACCOUNT_NUMBER),
+      ]);
+    }
 
     return {
       ...empty,
       tariff,
       device,
       completedDispatches: completed,
+      storedDispatches,
+      storedDispatchCount,
       plannedDispatches: planned,
       recentSmartKwh: Math.round(recentSmartKwh * 100) / 100,
       recentSmartEnergyCostEur: Math.round(recentSmartEnergyCostEur * 100) / 100,
       recentIntelligentSavingEur: Math.round(recentIntelligentSavingEur * 100) / 100,
-      monthSmartKwh: Math.round(recentSmartKwh * 100) / 100,
-      monthSmartEnergyCostEur: Math.round(recentSmartEnergyCostEur * 100) / 100,
-      monthIntelligentSavingEur: Math.round(recentIntelligentSavingEur * 100) / 100,
-      dispatchDataNote: empty.dispatchDataNote,
+      monthSmartKwh: monthStats.energyKwh,
+      monthSmartEnergyCostEur: monthStats.energyCostEur,
+      monthIntelligentSavingEur: monthStats.savingEur,
+      monthDispatchCount: monthStats.dispatchCount,
+      lastSyncAt: new Date().toISOString(),
     };
   } catch {
     return empty;

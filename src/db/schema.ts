@@ -72,6 +72,37 @@ export const wallboxSessions = pgTable(
   (t) => [uniqueIndex("wallbox_device_charge_uniq").on(t.deviceId, t.idCharge)]
 );
 
+/**
+ * Finestre Intelligent Octopus (completedDispatches Kraken).
+ * Storico incrementale: ogni sync salva le ultime finestre API con upsert su account+start+end.
+ */
+export const octopusDispatches = pgTable(
+  "octopus_dispatches",
+  {
+    id: serial("id").primaryKey(),
+    accountNumber: varchar("account_number", { length: 32 }).notNull(),
+    deviceId: varchar("device_id", { length: 64 }),
+    windowStart: timestamp("window_start", { withTimezone: true }).notNull(),
+    windowEnd: timestamp("window_end", { withTimezone: true }).notNull(),
+    /** Valore grezzo API (negativo = carica). */
+    deltaKwh: real("delta_kwh").notNull().default(0),
+    /** kWh ottimizzati caricati (|delta| se carica). */
+    energyKwh: real("energy_kwh").notNull().default(0),
+    unitRateEurPerKwh: real("unit_rate_eur_per_kwh").notNull().default(0),
+    energyCostEur: real("energy_cost_eur").notNull().default(0),
+    savingEur: real("saving_eur").notNull().default(0),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+    updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [
+    uniqueIndex("octopus_dispatch_window_uniq").on(
+      t.accountNumber,
+      t.windowStart,
+      t.windowEnd
+    ),
+  ]
+);
+
 export type Telemetry = typeof telemetries.$inferSelect;
 export type NewTelemetry = typeof telemetries.$inferInsert;
 export type ChargingEvent = typeof chargingEvents.$inferSelect;
@@ -80,3 +111,5 @@ export type Trip = typeof trips.$inferSelect;
 export type NewTrip = typeof trips.$inferInsert;
 export type WallboxSession = typeof wallboxSessions.$inferSelect;
 export type NewWallboxSession = typeof wallboxSessions.$inferInsert;
+export type OctopusDispatchRow = typeof octopusDispatches.$inferSelect;
+export type NewOctopusDispatchRow = typeof octopusDispatches.$inferInsert;

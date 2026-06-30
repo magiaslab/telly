@@ -12,10 +12,20 @@ export function SyncButton() {
     setLoading(true);
     setMessage(null);
     try {
-      const res = await fetch(`/api/sync${force ? "?force=true" : ""}`);
-      const data = await res.json();
+      const res = await fetch(`/api/sync${force ? "?force=true" : ""}`, {
+        credentials: "same-origin",
+      });
+      const text = await res.text();
+      let data: { error?: string; skipped?: boolean; hint?: string };
+      try {
+        data = JSON.parse(text) as typeof data;
+      } catch {
+        setMessage("Risposta server non valida. Riprova.");
+        return;
+      }
       if (!res.ok) {
-        setMessage(data.error ?? `Errore ${res.status}`);
+        const detail = data.error ?? `Errore ${res.status}`;
+        setMessage(data.hint ? `${detail}. ${data.hint}` : detail);
         return;
       }
       if (data.skipped) {

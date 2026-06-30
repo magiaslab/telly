@@ -28,9 +28,28 @@ export default async function AuthErrorPage(props: PageProps) {
               {errorDescription && <p className="mt-1 text-muted-foreground">{errorDescription}</p>}
             </div>
           )}
-          <p className="text-muted-foreground text-sm">
-            Su <strong>Vercel</strong> (Environment Variables) verifica:
-          </p>
+          {error === "userinfo_failed" && (
+            <div className="rounded-md border border-blue-200 bg-blue-50 p-3 text-sm dark:border-blue-800 dark:bg-blue-950/50">
+              <p className="font-medium text-blue-900 dark:text-blue-100">Profilo Tesla non letto</p>
+              <p className="mt-1 text-muted-foreground">
+                Il login Tesla è andato a buon fine ma non è stato possibile leggere il profilo.
+                Spesso succede se l&apos;app ha permessi vecchi senza scope <code className="rounded bg-muted px-1">user_data</code>.
+              </p>
+              <p className="mt-2 text-muted-foreground">
+                Revoca l&apos;accesso dell&apos;app Tesla dal tuo account, poi riprova il login:
+              </p>
+              <p className="mt-1">
+                <a
+                  href="https://auth.tesla.com/user/revoke/consent"
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="underline underline-offset-2"
+                >
+                  Gestisci app di terze parti Tesla
+                </a>
+              </p>
+            </div>
+          )}
           <ul className="list-inside list-disc space-y-1 text-sm">
             <li>
               <code className="rounded bg-muted px-1.5 py-0.5">AUTH_SECRET</code> — almeno 32 caratteri (es. <code className="rounded bg-muted px-1.5 py-0.5">openssl rand -base64 32</code>)
@@ -47,17 +66,27 @@ export default async function AuthErrorPage(props: PageProps) {
           </p>
           <ul className="list-inside list-disc space-y-1 text-sm">
             <li>
-              <strong>URI di reindirizzamento</strong> deve essere esattamente:{" "}
+              <strong>URI di reindirizzamento</strong> (deve coincidere con{" "}
+              <code className="rounded bg-muted px-1.5 py-0.5">TESLA_REDIRECT_URI</code> su Vercel), es.{" "}
+              <code className="break-all rounded bg-muted px-1.5 py-0.5">
+                https://telly.magiaslab.com/api/auth/tesla/callback
+              </code>{" "}
+              oppure{" "}
               <code className="break-all rounded bg-muted px-1.5 py-0.5">
                 https://telly.magiaslab.com/api/auth/callback/tesla
               </code>
+            </li>
+            <li>
+              Partner account registrato su regione <strong>EU</strong> per account italiani
             </li>
             <li>
               <strong>Origine consentita</strong>: <code className="rounded bg-muted px-1.5 py-0.5">https://telly.magiaslab.com</code>
             </li>
           </ul>
           <p className="text-muted-foreground text-sm">
-            Se l&apos;errore continua: in Vercel vai su <strong>Logs</strong> o <strong>Functions</strong> e cerca il messaggio reale (es. &quot;Tesla userinfo failed&quot;) al momento del login.
+            Se vedi <strong>Access Denied</strong> su auth.tesla.com, il login ora passa da{" "}
+            <code className="rounded bg-muted px-1.5 py-0.5">/api/auth/tesla/go</code> senza Referer.
+            Usa il pulsante &quot;Continua con Tesla&quot; dalla pagina di login (non bookmark vecchi).
           </p>
           <Button asChild>
             <Link href="/login">Riprova ad accedere</Link>

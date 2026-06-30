@@ -1,6 +1,6 @@
 import { cookies } from "next/headers";
-import { db, telemetries, chargingEvents, trips, wallboxSessions } from "@/db";
-import { eq, desc, and, gte } from "drizzle-orm";
+import { db, telemetries, chargingEvents, wallboxSessions } from "@/db";
+import { eq, desc, and, gte, lt, asc } from "drizzle-orm";
 import { getEffectiveVin } from "@/lib/use-mock";
 import {
   getV2cConnected,
@@ -23,10 +23,224 @@ import {
   getTeslaFleetBaseUrl,
 } from "@/lib/tesla-api";
 
-const DIESEL_EUR_PER_L = 1.75;
-const DIESEL_KM_PER_L = 15; // Kia 1.4 Diesel
+export const DIESEL_EUR_PER_L = 1.75;
+export const DIESEL_KM_PER_L = 15;
+const MILES_TO_KM = 1.60934;
 
 const getVin = () => getEffectiveVin();
+
+/**
+ * Corregge letture odometro salvate per errore come miglia (pre-fix sync).
+ * Es. 562 mi mostrate come km → ~904 km reali.
+ */
+export function normalizeOdometerKm(value: number, referenceKm: number): number {
+  if (value <= 0 || referenceKm <= 0) return value;
+  const ratio = referenceKm / value;
+  if (ratio >= 1.55 && ratio <= 1.65) {
+    return Math.round(value * MILES_TO_KM * 10) / 10;
+  }
+  const asKm = value * MILES_TO_KM;
+  if (Math.abs(asKm - referenceKm) / referenceKm < 0.04) {
+    return Math.round(asKm * 10) / 10;
+  }
+  return value;
+}
+
+export function dieselCostForKm(km: number): number {
+  return Math.round((km / DIESEL_KM_PER_L) * DIESEL_EUR_PER_L * 100) / 100;
+}
+
+function monthLabelRome(): string {
+  return new Intl.DateTimeFormat("it-IT", {
+    timeZone: "Europe/Rome",
+    month: "long",
+    year: "numeric",
+  }).format(new Date());
+}
+
+/** Km percorsi da delta odometro tra letture telemetria. */
+async function odometerKmDelta(
+  vin: string,
+  rangeStart: Date,
+  rangeEnd?: Date
+): Promise<{
+  km: number;
+  odometerStart: number | null;
+  odometerEnd: number | null;
+  odometerStartRaw: number | null;
+  correctedMilesAsKm: boolean;
+  samples: number;
+}> {
+  const conditions = [eq(telemetries.vin, vin), gte(telemetries.timestamp, rangeStart)];
+  if (rangeEnd) {
+    conditions.push(lt(telemetries.timestamp, rangeEnd));
+  }
+
+  const inRange = await db
+    .select({ odometer: telemetries.odometer, timestamp: telemetries.timestamp })
+    .from(telemetries)
+    .where(and(...conditions))
+    .orderBy(asc(telemetries.timestamp));
+
+  const [before] = await db
+    .select({ odometer: telemetries.odometer })
+    .from(telemetries)
+    .where(and(eq(telemetries.vin, vin), lt(telemetries.timestamp, rangeStart)))
+    .orderBy(desc(telemetries.timestamp))
+    .limit(1);
+
+  const points = inRange.filter((r) => (r.odometer ?? 0) > 0);
+  const rawStart = before?.odometer ?? points[0]?.odometer ?? null;
+  const rawEnd =
+    points.length > 0 ? points[points.length - 1]!.odometer : before?.odometer ?? null;
+
+  if (rawStart == null || rawEnd == null) {
+    return {
+      km: 0,
+      odometerStart: rawStart,
+      odometerEnd: rawEnd,
+      odometerStartRaw: rawStart,
+      correctedMilesAsKm: false,
+      samples: points.length,
+    };
+  }
+
+  const ref = rawEnd;
+  const normStart = normalizeOdometerKm(rawStart, ref);
+  const normEnd = normalizeOdometerKm(rawEnd, ref);
+  const correctedMilesAsKm = Math.abs(normStart - rawStart) > 0.5;
+
+  if (normEnd < normStart) {
+    return {
+      km: 0,
+      odometerStart: normStart,
+      odometerEnd: normEnd,
+      odometerStartRaw: rawStart,
+      correctedMilesAsKm,
+      samples: points.length,
+    };
+  }
+
+  return {
+    km: Math.round((normEnd - normStart) * 10) / 10,
+    odometerStart: normStart,
+    odometerEnd: normEnd,
+    odometerStartRaw: rawStart,
+    correctedMilesAsKm,
+    samples: points.length,
+  };
+}
+
+export type MonthlySummary = {
+  monthLabel: string;
+  /** Km percorsi nel mese (delta odometro, non totale auto). */
+  kmDriven: number;
+  /** Odometro totale attuale (km cumulativi sull'auto). */
+  currentOdometerKm: number | null;
+  odometerStart: number | null;
+  odometerEnd: number | null;
+  odometerStartRaw: number | null;
+  correctedMilesAsKm: boolean;
+  telemetrySamples: number;
+  kmSource: "odometer_delta" | "insufficient_data";
+  homeChargeKwh: number;
+  homeChargeEur: number;
+  homeChargeSessions: number;
+  publicChargeKwh: number;
+  publicChargeEur: number;
+  totalChargeEur: number;
+  dieselCostEur: number;
+  savedVsDieselEur: number;
+  consumptionKwhPer100Km: number | null;
+};
+
+/** Riepilogo mese corrente (Europe/Rome): km da odometro, ricarica casa da wallbox DB. */
+export async function getMonthlySummary(): Promise<MonthlySummary> {
+  const empty: MonthlySummary = {
+    monthLabel: monthLabelRome(),
+    kmDriven: 0,
+    currentOdometerKm: null,
+    odometerStart: null,
+    odometerEnd: null,
+    odometerStartRaw: null,
+    correctedMilesAsKm: false,
+    telemetrySamples: 0,
+    kmSource: "insufficient_data",
+    homeChargeKwh: 0,
+    homeChargeEur: 0,
+    homeChargeSessions: 0,
+    publicChargeKwh: 0,
+    publicChargeEur: 0,
+    totalChargeEur: 0,
+    dieselCostEur: 0,
+    savedVsDieselEur: 0,
+    consumptionKwhPer100Km: null,
+  };
+
+  const vin = getVin();
+  if (!vin) return empty;
+
+  try {
+    const { startDate } = monthRangeRome();
+    const odo = await odometerKmDelta(vin, startDate);
+    const deviceId = await resolveV2cDeviceId();
+
+    let homeChargeKwh = 0;
+    let homeChargeEur = 0;
+    let homeChargeSessions = 0;
+
+    if (deviceId) {
+      const sessions = await db
+        .select()
+        .from(wallboxSessions)
+        .where(
+          and(
+            eq(wallboxSessions.deviceId, deviceId),
+            gte(wallboxSessions.startedAt, startDate)
+          )
+        );
+      homeChargeKwh = sessions.reduce((s, r) => s + (r.energyKwh ?? 0), 0);
+      homeChargeEur = sessions.reduce((s, r) => s + (r.costEur ?? 0), 0);
+      homeChargeSessions = sessions.length;
+    }
+
+    const kmDriven = odo.km;
+    const dieselCostEur = dieselCostForKm(kmDriven);
+    const totalChargeEur = homeChargeEur + empty.publicChargeEur;
+    const savedVsDieselEur = Math.round((dieselCostEur - totalChargeEur) * 100) / 100;
+
+    let consumptionKwhPer100Km: number | null = null;
+    if (kmDriven > 0 && homeChargeKwh > 0) {
+      consumptionKwhPer100Km = Math.round((homeChargeKwh / kmDriven) * 100 * 10) / 10;
+    }
+
+    return {
+      monthLabel: monthLabelRome(),
+      kmDriven,
+      currentOdometerKm: odo.odometerEnd,
+      odometerStart: odo.odometerStart,
+      odometerEnd: odo.odometerEnd,
+      odometerStartRaw: odo.odometerStartRaw,
+      correctedMilesAsKm: odo.correctedMilesAsKm,
+      telemetrySamples: odo.samples,
+      kmSource:
+        odo.odometerEnd != null && (odo.samples >= 1 || odo.odometerStart != null)
+          ? "odometer_delta"
+          : "insufficient_data",
+      homeChargeKwh: Math.round(homeChargeKwh * 100) / 100,
+      homeChargeEur: Math.round(homeChargeEur * 100) / 100,
+      homeChargeSessions,
+      publicChargeKwh: 0,
+      publicChargeEur: 0,
+      totalChargeEur: Math.round(totalChargeEur * 100) / 100,
+      dieselCostEur,
+      savedVsDieselEur,
+      consumptionKwhPer100Km,
+    };
+  } catch {
+    return empty;
+  }
+}
 
 export async function getLatestTelemetry() {
   const vin = getVin();
@@ -89,53 +303,70 @@ export async function getChargingCostThisMonth() {
   }
 }
 
-/** Dati per BarChart risparmio vs Diesel (ultime N settimane). */
+/** Dati per BarChart risparmio vs Diesel (ultime N settimane, km da odometro + costi wallbox). */
 export async function getSavingsForBarChart(weeks = 4) {
   const vin = getVin();
   if (!vin) return { series: [] };
   try {
-    const start = new Date();
+    const now = new Date();
+    const start = new Date(now);
     start.setDate(start.getDate() - weeks * 7);
     start.setHours(0, 0, 0, 0);
 
-    const tripRows = await db
-      .select({ km: trips.km, kWhConsumed: trips.kWhConsumed, endedAt: trips.endedAt })
-      .from(trips)
-      .where(
-        and(eq(trips.vin, vin), gte(trips.endedAt, start))
-      );
-    const chargeRows = await db
-      .select({ costEur: chargingEvents.costEur, kWhAdded: chargingEvents.kWhAdded, startedAt: chargingEvents.startedAt })
-      .from(chargingEvents)
-      .where(
-        and(eq(chargingEvents.vin, vin), gte(chargingEvents.startedAt, start))
-      );
-
-    const series: { period: string; spentEur: number; dieselEur: number; savedEur: number }[] = [];
-    for (let w = 0; w < weeks; w++) {
-    const weekStart = new Date(start);
-    weekStart.setDate(weekStart.getDate() + w * 7);
-    const weekEnd = new Date(weekStart);
-    weekEnd.setDate(weekEnd.getDate() + 7);
-
-    const weekTrips = tripRows.filter(
-      (t) => t.endedAt && new Date(t.endedAt) >= weekStart && new Date(t.endedAt) < weekEnd
-    );
-    const weekCharges = chargeRows.filter(
-      (c) => c.startedAt && new Date(c.startedAt) >= weekStart && new Date(c.startedAt) < weekEnd
-    );
-    const km = weekTrips.reduce((s, t) => s + (t.km ?? 0), 0);
-    const spentEur = weekCharges.reduce((s, c) => s + (c.costEur ?? 0), 0);
-    const dieselEur = (km / DIESEL_KM_PER_L) * DIESEL_EUR_PER_L;
-    const savedEur = dieselEur - spentEur;
-
-    series.push({
-      period: `Sett. ${w + 1}`,
-      spentEur: Math.round(spentEur * 100) / 100,
-      dieselEur: Math.round(dieselEur * 100) / 100,
-      savedEur: Math.round(savedEur * 100) / 100,
-    });
+    const deviceId = await resolveV2cDeviceId();
+    let wallboxRows: { costEur: number; startedAt: Date | null }[] = [];
+    if (deviceId) {
+      const rows = await db
+        .select({ costEur: wallboxSessions.costEur, startedAt: wallboxSessions.startedAt })
+        .from(wallboxSessions)
+        .where(
+          and(
+            eq(wallboxSessions.deviceId, deviceId),
+            gte(wallboxSessions.startedAt, start)
+          )
+        );
+      wallboxRows = rows.map((r) => ({
+        costEur: r.costEur ?? 0,
+        startedAt: r.startedAt ? new Date(r.startedAt) : null,
+      }));
     }
+
+    const weekFmt = new Intl.DateTimeFormat("it-IT", {
+      timeZone: "Europe/Rome",
+      day: "numeric",
+      month: "short",
+    });
+
+    const series: { period: string; spentEur: number; dieselEur: number; savedEur: number; km: number }[] = [];
+
+    for (let w = 0; w < weeks; w++) {
+      const weekStart = new Date(start);
+      weekStart.setDate(weekStart.getDate() + w * 7);
+      const weekEnd = new Date(weekStart);
+      weekEnd.setDate(weekEnd.getDate() + 7);
+
+      const odo = await odometerKmDelta(vin, weekStart, weekEnd);
+      const km = odo.km;
+      const spentEur = wallboxRows
+        .filter((r) => r.startedAt && r.startedAt >= weekStart && r.startedAt < weekEnd)
+        .reduce((s, r) => s + r.costEur, 0);
+      const dieselEur = dieselCostForKm(km);
+      const savedEur = dieselEur - spentEur;
+
+      const period =
+        w === weeks - 1
+          ? `${weekFmt.format(weekStart)}–oggi`
+          : `${weekFmt.format(weekStart)}–${weekFmt.format(new Date(weekEnd.getTime() - 86400000))}`;
+
+      series.push({
+        period,
+        km,
+        spentEur: Math.round(spentEur * 100) / 100,
+        dieselEur,
+        savedEur: Math.round(savedEur * 100) / 100,
+      });
+    }
+
     return { series };
   } catch {
     return { series: [] };

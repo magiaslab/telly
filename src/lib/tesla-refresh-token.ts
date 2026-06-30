@@ -11,10 +11,17 @@ export async function getTeslaRefreshToken(
 ): Promise<string | null> {
   if (request) {
     const token = await getToken({
-      req: request as unknown as Request,
+      req: request,
       secret: process.env.AUTH_SECRET,
+      secureCookie: process.env.NODE_ENV === "production",
+      cookieName:
+        process.env.NODE_ENV === "production"
+          ? "__Secure-authjs.session-token"
+          : "authjs.session-token",
     });
-    if (token?.tesla_refresh_token) return token.tesla_refresh_token;
+    if (token?.tesla_refresh_token && typeof token.tesla_refresh_token === "string") {
+      return token.tesla_refresh_token;
+    }
   }
   const cookieStore = await cookies();
   const fromCookie = cookieStore.get("tesla_refresh_token")?.value;

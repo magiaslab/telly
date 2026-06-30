@@ -29,6 +29,16 @@ export const teslaClimateStateSchema = z.object({
   inside_temp: z.number().nullable().optional(),
 });
 
+export const teslaLocationDataSchema = z.object({
+  latitude: z.number().optional(),
+  longitude: z.number().optional(),
+  gps_as_of: z.number().optional(),
+});
+
+export const teslaGuiSettingsSchema = z.object({
+  distance_units: z.enum(["km", "mi"]).optional(),
+});
+
 export const teslaVehicleDataSchema = z.object({
   id: z.number().optional(),
   vin: z.string().length(17).optional(),
@@ -37,6 +47,8 @@ export const teslaVehicleDataSchema = z.object({
   drive_state: teslaDriveStateSchema.optional(),
   vehicle_state: teslaVehicleStateSchema.optional(),
   climate_state: teslaClimateStateSchema.optional(),
+  location_data: teslaLocationDataSchema.optional(),
+  gui_settings: teslaGuiSettingsSchema.optional(),
 });
 
 export type TeslaVehicleDataValidated = z.infer<typeof teslaVehicleDataSchema>;

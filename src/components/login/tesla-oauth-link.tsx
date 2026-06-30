@@ -10,7 +10,7 @@ type TeslaOAuthLinkProps = {
   children: ReactNode;
 };
 
-/** Link OAuth Tesla via pagina bridge (evita Referer verso auth.tesla.com). */
+/** Avvia OAuth Tesla custom (/api/auth/tesla/go) senza Referer verso auth.tesla.com. */
 export function TeslaOAuthLink({
   callbackUrl = "/dashboard",
   className,
@@ -18,10 +18,10 @@ export function TeslaOAuthLink({
   variant = "default",
   children,
 }: TeslaOAuthLinkProps) {
-  const href = `/auth/tesla-bridge?callbackUrl=${encodeURIComponent(callbackUrl)}`;
+  const href = `/api/auth/tesla/go?callbackUrl=${encodeURIComponent(callbackUrl)}`;
   return (
     <Button asChild className={className} size={size} variant={variant}>
-      <Link href={href} rel="noreferrer noopener">
+      <Link href={href} rel="noreferrer noopener" prefetch={false}>
         {children}
       </Link>
     </Button>

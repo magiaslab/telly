@@ -10,6 +10,7 @@ import type { OAuthConfig, OAuthUserConfig } from "next-auth/providers";
 
 const TESLA_AUTHORIZE = "https://auth.tesla.com/oauth2/v3/authorize";
 const TESLA_TOKEN_URL = "https://fleet-auth.prd.vn.cloud.tesla.com/oauth2/v3/token";
+const FLEET_AUDIENCE_EU = "https://fleet-api.prd.eu.vn.cloud.tesla.com";
 const FLEET_AUDIENCE_NA = "https://fleet-api.prd.na.vn.cloud.tesla.com";
 const FLEET_API_NA = "https://fleet-api.prd.na.vn.cloud.tesla.com";
 const FLEET_API_EU = "https://fleet-api.prd.eu.vn.cloud.tesla.com";
@@ -91,21 +92,25 @@ export default function Tesla(
           console.error("[Telly Tesla OAuth]", msg, { hasClientId: !!clientId, hasClientSecret: !!clientSecret, redirectUri: redirectUri ?? null });
           throw new Error(msg);
         }
-        const body = new URLSearchParams({
-          grant_type: "authorization_code",
-          client_id: clientId,
-          client_secret: clientSecret,
-          code: params.code as string,
-          redirect_uri: redirectUri,
-          audience: FLEET_AUDIENCE_NA,
-        });
-        const res = await fetch(TESLA_TOKEN_URL, {
-          method: "POST",
-          headers: { "Content-Type": "application/x-www-form-urlencoded" },
-          body: body.toString(),
-        });
+        const exchange = async (audience: string) => {
+          const body = new URLSearchParams({
+            grant_type: "authorization_code",
+            client_id: clientId,
+            client_secret: clientSecret,
+            code: params.code as string,
+            redirect_uri: redirectUri,
+            audience,
+          });
+          const res = await fetch(TESLA_TOKEN_URL, {
+            method: "POST",
+            headers: { "Content-Type": "application/x-www-form-urlencoded" },
+            body: body.toString(),
+          });
+          return { res, text: res.ok ? null : await res.text() };
+        };
+        let { res, text } = await exchange(FLEET_AUDIENCE_EU);
+        if (!res.ok) ({ res, text } = await exchange(FLEET_AUDIENCE_NA));
         if (!res.ok) {
-          const text = await res.text();
           const msg = `Tesla token exchange failed: ${res.status} ${text}`;
           console.error("[Telly Tesla OAuth]", msg);
           throw new Error(msg);
@@ -138,9 +143,9 @@ export default function Tesla(
           });
           return { ok: r.ok, status: r.status, json: r.ok ? await r.json() : null };
         };
-        let out = await tryUserinfo(FLEET_API_NA);
+        let out = await tryUserinfo(FLEET_API_EU);
         if (!out.ok && (out.status === 401 || out.status === 403)) {
-          out = await tryUserinfo(FLEET_API_EU);
+          out = await tryUserinfo(FLEET_API_NA);
         }
         if (!out.ok) {
           const msg = `Tesla userinfo failed: ${out.status} (NA e EU provati)`;

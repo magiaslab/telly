@@ -18,6 +18,31 @@ export function getTeslaFleetBaseUrl(region: "NA" | "EU" = "NA"): string {
 const TESLA_API_BASE = TESLA_API_BASE_NA;
 /** Token endpoint: secondo la guida Tesla va usato fleet-auth per code exchange e refresh. */
 const TESLA_TOKEN_URL = "https://fleet-auth.prd.vn.cloud.tesla.com/oauth2/v3/token";
+const MILES_TO_KM = 1.60934;
+
+/** Endpoint espliciti: da firmware 2023.38+ serve location_data per lat/lon a veicolo fermo. */
+const VEHICLE_DATA_ENDPOINTS =
+  "charge_state;climate_state;drive_state;vehicle_state;location_data;gui_settings";
+
+/** Risolve la base Fleet API (EU per account europei). */
+export async function resolveFleetBaseUrl(accessToken: string): Promise<string> {
+  const forced = process.env.TESLA_FLEET_REGION?.toUpperCase();
+  if (forced === "EU") return TESLA_API_BASE_EU;
+  if (forced === "NA") return TESLA_API_BASE_NA;
+
+  for (const base of [TESLA_API_BASE_EU, TESLA_API_BASE_NA]) {
+    try {
+      const regionRes = await getTeslaRegion(accessToken, base);
+      const region = regionRes.response?.region;
+      if (region === "EU") return TESLA_API_BASE_EU;
+      if (region === "NA") return TESLA_API_BASE_NA;
+      return base;
+    } catch {
+      // prova l'altra regione
+    }
+  }
+  return TESLA_API_BASE_EU;
+}
 
 export async function getTeslaAccessToken(refreshToken: string): Promise<string> {
   const res = await fetch(TESLA_TOKEN_URL, {
@@ -38,16 +63,61 @@ export async function getTeslaAccessToken(refreshToken: string): Promise<string>
   return data.access_token;
 }
 
+export type TelemetryFromVehicle = {
+  soc: number;
+  odometerKm: number;
+  rangeKm: number;
+  isCharging: boolean;
+  powerUsage: number | null;
+  tempInside: number | null;
+  lat: number | null;
+  lon: number | null;
+};
+
+/** Mappa vehicle_data Fleet API → valori metrici per il DB (km, lat/lon). */
+export function mapVehicleDataToTelemetry(data: TeslaVehicleDataValidated): TelemetryFromVehicle {
+  const charge = data.charge_state;
+  const drive = data.drive_state;
+  const vehicle = data.vehicle_state;
+  const climate = data.climate_state;
+  const location = data.location_data;
+
+  const distanceUnits = data.gui_settings?.distance_units;
+  const odometerRaw = vehicle?.odometer ?? 0;
+  const odometerKm =
+    distanceUnits === "km" ? odometerRaw : odometerRaw * MILES_TO_KM;
+
+  const rangeMiles = charge?.battery_range ?? 0;
+  const rangeKm = rangeMiles * MILES_TO_KM;
+
+  const lat = drive?.latitude ?? location?.latitude ?? null;
+  const lon = drive?.longitude ?? location?.longitude ?? null;
+
+  return {
+    soc: charge?.battery_level ?? 0,
+    odometerKm: Math.round(odometerKm * 10) / 10,
+    rangeKm: Math.round(rangeKm * 10) / 10,
+    isCharging: (charge?.charging_state ?? "") === "Charging",
+    powerUsage: charge?.charger_power ?? drive?.power ?? null,
+    tempInside: climate?.inside_temp ?? null,
+    lat,
+    lon,
+  };
+}
+
 export async function getVehicleData(
   accessToken: string,
-  vin: string
+  vin: string,
+  fleetBaseUrl?: string
 ): Promise<TeslaVehicleDataValidated | null> {
-  const url = `${TESLA_API_BASE}/api/1/vehicles/${encodeURIComponent(vin)}/vehicle_data`;
+  const base = fleetBaseUrl ?? (await resolveFleetBaseUrl(accessToken));
+  const params = new URLSearchParams({ endpoints: VEHICLE_DATA_ENDPOINTS });
+  const url = `${base}/api/1/vehicles/${encodeURIComponent(vin)}/vehicle_data?${params.toString()}`;
   const res = await fetch(url, {
     headers: {
       Authorization: `Bearer ${accessToken}`,
     },
-    next: { revalidate: 0 },
+    cache: "no-store",
   });
   if (!res.ok) {
     if (res.status === 408 || res.status === 504) {
@@ -62,6 +132,22 @@ export async function getVehicleData(
     return null;
   }
   return parsed.data;
+}
+
+export async function wakeVehicle(
+  accessToken: string,
+  vin: string,
+  fleetBaseUrl: string
+): Promise<boolean> {
+  const res = await fetch(
+    `${fleetBaseUrl}/api/1/vehicles/${encodeURIComponent(vin)}/wake_up`,
+    {
+      method: "POST",
+      headers: { Authorization: `Bearer ${accessToken}` },
+      cache: "no-store",
+    }
+  );
+  return res.ok;
 }
 
 export async function listVehicles(

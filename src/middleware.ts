@@ -8,9 +8,14 @@ export default auth((req) => {
   const isSignupPage = req.nextUrl.pathname === "/signup";
   const isAuthApi = req.nextUrl.pathname.startsWith("/api/auth");
 
+  const isTeslaOAuth =
+    req.nextUrl.pathname === "/api/auth/tesla/go" ||
+    req.nextUrl.pathname === "/api/auth/callback/tesla" ||
+    req.nextUrl.pathname === "/api/auth/tesla/callback";
+
   if (isAuthApi) {
     const res = NextResponse.next();
-    if (req.nextUrl.pathname === "/api/auth/signin/tesla") {
+    if (isTeslaOAuth || req.nextUrl.pathname === "/api/auth/signin/tesla") {
       res.headers.set("Referrer-Policy", "no-referrer");
     }
     return res;

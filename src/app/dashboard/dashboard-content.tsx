@@ -2,9 +2,12 @@ import {
   getLatestTelemetry,
   getTelemetriesForChart,
   getChargingCostThisMonth,
+  getMonthlySummary,
   getSavingsForBarChart,
   getTeslaAccountAndVehicles,
   getWallboxData,
+  DIESEL_EUR_PER_L,
+  DIESEL_KM_PER_L,
   type WallboxData,
 } from "./data";
 import { getOctopusData, INTELLIGENT_OCTOPUS_URL } from "@/lib/octopus-api";
@@ -21,7 +24,7 @@ import { BatteryIcon } from "@/components/dashboard/battery-icon";
 import { EnergyChart } from "@/components/dashboard/energy-chart";
 import { SavingsBarChart } from "@/components/dashboard/savings-barchart";
 import { SyncButton } from "@/components/dashboard/sync-button";
-import { Car, Gauge, Leaf, MapPin, Package, Plug, User, Zap } from "lucide-react";
+import { Car, Gauge, Fuel, Leaf, MapPin, Package, Plug, Route, User, Zap } from "lucide-react";
 import { DashboardHeader } from "@/components/dashboard/dashboard-header";
 import { VehicleMap } from "@/components/dashboard/vehicle-map";
 import { VehicleConfiguratorCarousel } from "@/components/dashboard/vehicle-configurator-carousel";
@@ -29,10 +32,7 @@ import { TeslaConnectButton } from "@/components/dashboard/tesla-connect-button"
 import { TeslaPasteTokenForm } from "@/components/dashboard/tesla-paste-token-form";
 import { WallboxLiveStatus } from "@/components/dashboard/wallbox-live-status";
 
-const DIESEL_EUR_PER_L = 1.75;
-const DIESEL_KM_PER_L = 15;
-/** km per kWh stimato Model Y (es. 6.5 km/kWh) */
-const KM_PER_KWH = 6.5;
+const DIESEL_LABEL = `Diesel ${DIESEL_EUR_PER_L} €/L · ${DIESEL_KM_PER_L} km/L`;
 
 const WALLBOX_MONTH_SOURCE_LABEL: Record<WallboxData["monthStatsSource"], string> = {
   v2c_global_api: "Totali da API V2C (/stadistic/global/me), come l'app wallbox",
@@ -81,10 +81,12 @@ function TeslaReconnectCard({ teslaError }: { teslaError?: string }) {
 }
 
 export async function DashboardContent({ teslaError, teslaLinked }: DashboardContentProps) {
-  const [latest, chartData, cost, savingsChart, teslaAccount, wallbox, octopus] = await Promise.all([
+  const [latest, chartData, cost, monthly, savingsChart, teslaAccount, wallbox, octopus] =
+    await Promise.all([
     getLatestTelemetry(),
     getTelemetriesForChart(7),
     getChargingCostThisMonth(),
+    getMonthlySummary(),
     getSavingsForBarChart(4),
     getTeslaAccountAndVehicles(),
     getWallboxData(20),
@@ -99,18 +101,9 @@ export async function DashboardContent({ teslaError, teslaLinked }: DashboardCon
     minute: "2-digit",
   });
 
-  // Speso questo mese (da charging_events)
-  const spentThisMonth = cost.totalEur;
-  const kwhThisMonth = cost.totalKwh;
-  // Confronto diesel: preferisci dati wallbox V2C se disponibili
-  const compareKwh =
-    wallbox.deviceId && wallbox.monthEnergyKwh > 0 ? wallbox.monthEnergyKwh : kwhThisMonth;
-  const compareSpent =
-    wallbox.deviceId && wallbox.monthCostEur > 0 ? wallbox.monthCostEur : spentThisMonth;
-  const kmEquivalent = compareKwh * KM_PER_KWH;
-  const dieselLiters = kmEquivalent / DIESEL_KM_PER_L;
-  const dieselCostEur = dieselLiters * DIESEL_EUR_PER_L;
-  const savedVsDiesel = dieselCostEur - compareSpent;
+  const hasSavingsChartData = savingsChart.series.some(
+    (s) => s.km > 0 || s.spentEur > 0
+  );
 
   const mockEnabled = useMock();
   const hasNoData = !latest && chartData.length === 0 && cost.events.length === 0;
@@ -529,16 +522,18 @@ export async function DashboardContent({ teslaError, teslaLinked }: DashboardCon
                 </p>
                 <div className="mt-4 flex flex-wrap gap-6">
                   <div>
-                    <p className="text-muted-foreground text-sm">kWh ottimizzati (finestre API)</p>
+                    <p className="text-muted-foreground text-sm">kWh ottimizzati (mese, DB)</p>
                     <p className="text-2xl font-bold tabular-nums">
-                      {octopus.recentSmartKwh.toFixed(2)} kWh
+                      {octopus.monthSmartKwh.toFixed(2)} kWh
                     </p>
                     <p className="text-muted-foreground text-xs">
-                      Solo ultime finestre Kraken esposte dall&apos;API
+                      {octopus.monthDispatchCount > 0
+                        ? `${octopus.monthDispatchCount} finestre · storico ${octopus.storedDispatchCount} in DB`
+                        : "Nessuna finestra salvata questo mese"}
                     </p>
                   </div>
                   <div>
-                    <p className="text-muted-foreground text-sm">Componente energia (pieno)</p>
+                    <p className="text-muted-foreground text-sm">Componente energia (mese, DB)</p>
                     <p className="text-2xl font-bold tabular-nums">
                       {octopus.monthSmartEnergyCostEur.toFixed(2)} €
                     </p>
@@ -549,16 +544,29 @@ export async function DashboardContent({ teslaError, teslaLinked }: DashboardCon
                     </p>
                   </div>
                   <div>
-                    <p className="text-muted-foreground text-sm">Sconto stimato (30% materia energia)</p>
+                    <p className="text-muted-foreground text-sm">Sconto stimato (30%, mese DB)</p>
                     <p className="text-2xl font-bold tabular-nums text-green-600 dark:text-green-400">
-                      −{octopus.recentIntelligentSavingEur.toFixed(2)} €
+                      −{octopus.monthIntelligentSavingEur.toFixed(2)} €
                     </p>
                     <p className="text-muted-foreground text-xs">
                       Accredito reale in bolletta Octopus (app)
                     </p>
                   </div>
+                  <div>
+                    <p className="text-muted-foreground text-sm">Ultime finestre API</p>
+                    <p className="text-2xl font-bold tabular-nums">
+                      {octopus.recentSmartKwh.toFixed(2)} kWh
+                    </p>
+                    <p className="text-muted-foreground text-xs">
+                      Solo finestra breve Kraken (non storico)
+                    </p>
+                  </div>
                 </div>
-                <p className="text-muted-foreground mt-2 text-xs">{octopus.dispatchDataNote}</p>
+                <p className="text-muted-foreground mt-2 text-xs">
+                  {octopus.dispatchDataNote}{" "}
+                  Sync manuale:{" "}
+                  <code className="bg-muted rounded px-1.5 py-0.5">/api/octopus/sync</code>
+                </p>
                 {octopus.plannedDispatches.length > 0 && (
                   <div className="mt-3 border-t border-green-500/20 pt-3">
                     <p className="text-muted-foreground mb-1 text-xs">Prossime finestre di ricarica</p>
@@ -571,9 +579,13 @@ export async function DashboardContent({ teslaError, teslaLinked }: DashboardCon
                     </ul>
                   </div>
                 )}
-                {octopus.completedDispatches.length > 0 && (
+                {(octopus.storedDispatches.length > 0 ? octopus.storedDispatches : octopus.completedDispatches).length > 0 && (
                   <div className="mt-3 border-t border-green-500/20 pt-3">
-                    <p className="text-muted-foreground mb-2 text-xs">Finestre completate (ultime)</p>
+                    <p className="text-muted-foreground mb-2 text-xs">
+                      {octopus.storedDispatches.length > 0
+                        ? "Storico Intelligent salvato (DB)"
+                        : "Finestre completate (ultime API)"}
+                    </p>
                     <div className="overflow-x-auto">
                       <table className="w-full text-xs">
                         <thead>
@@ -584,7 +596,12 @@ export async function DashboardContent({ teslaError, teslaLinked }: DashboardCon
                           </tr>
                         </thead>
                         <tbody>
-                          {octopus.completedDispatches.slice(0, 6).map((d, i) => (
+                          {(octopus.storedDispatches.length > 0
+                            ? octopus.storedDispatches
+                            : octopus.completedDispatches
+                          )
+                            .slice(0, 8)
+                            .map((d, i) => (
                             <tr key={i} className="border-b border-green-500/10">
                               <td className="py-1 pr-3 tabular-nums">
                                 {dateFmt.format(new Date(d.start))}
@@ -610,45 +627,149 @@ export async function DashboardContent({ teslaError, teslaLinked }: DashboardCon
 
       <Card>
         <CardHeader>
-          <CardTitle>Confronto costi</CardTitle>
+          <CardTitle className="flex items-center gap-2">
+            <Route className="h-4 w-4" /> Riepilogo {monthly.monthLabel}
+          </CardTitle>
           <CardDescription>
-            Wallbox V2C vs equivalente Diesel (1,75 €/L, 15 km/L). I dati Tesla/Octopus in bolletta
-            possono differire.
+            L&apos;odometro totale dell&apos;auto è diverso dai km percorsi nel mese: i km mensili
+            sono la differenza tra due sync Tesla (vedi sotto).
           </CardDescription>
+        </CardHeader>
+        <CardContent className="space-y-6">
+          <div className="grid gap-6 sm:grid-cols-2 lg:grid-cols-4">
+            <div>
+              <p className="text-muted-foreground text-sm">Odometro attuale</p>
+              <p className="text-2xl font-bold tabular-nums">
+                {monthly.currentOdometerKm != null
+                  ? `${monthly.currentOdometerKm.toFixed(0)} km`
+                  : "—"}
+              </p>
+              <p className="text-muted-foreground text-xs">Totale km sull&apos;auto (Tesla)</p>
+            </div>
+            <div>
+              <p className="text-muted-foreground text-sm">Km percorsi nel mese</p>
+              <p className="text-2xl font-bold tabular-nums">
+                {monthly.kmSource === "odometer_delta"
+                  ? `${monthly.kmDriven.toFixed(1)} km`
+                  : "—"}
+              </p>
+              <p className="text-muted-foreground text-xs">
+                {monthly.odometerStart != null && monthly.odometerEnd != null ? (
+                  <>
+                    Δ odometro: {monthly.odometerStart.toFixed(0)} → {monthly.odometerEnd.toFixed(0)}{" "}
+                    km
+                    {monthly.correctedMilesAsKm &&
+                      monthly.odometerStartRaw != null &&
+                      ` (corretto da ${monthly.odometerStartRaw.toFixed(0)} mi→km)`}
+                  </>
+                ) : (
+                  "Serve almeno 2 sync nel mese"
+                )}
+              </p>
+            </div>
+            <div>
+              <p className="text-muted-foreground text-sm">Ricarica casa (wallbox)</p>
+              <p className="text-2xl font-bold tabular-nums">
+                {monthly.homeChargeEur.toFixed(2)} €
+              </p>
+              <p className="text-muted-foreground text-xs">
+                {monthly.homeChargeKwh.toFixed(1)} kWh · {monthly.homeChargeSessions} sessioni
+              </p>
+            </div>
+            <div>
+              <p className="text-muted-foreground text-sm">Equiv. Diesel ({DIESEL_LABEL})</p>
+              <p className="text-2xl font-bold tabular-nums">
+                {monthly.dieselCostEur > 0 ? `${monthly.dieselCostEur.toFixed(2)} €` : "—"}
+              </p>
+              <p className="text-muted-foreground text-xs">
+                Stesso km su Kia 1.4 diesel
+              </p>
+            </div>
+            <div>
+              <p className="text-muted-foreground text-sm">Risparmio vs Diesel</p>
+              <p
+                className={`text-2xl font-bold tabular-nums ${
+                  monthly.savedVsDieselEur > 0
+                    ? "text-green-600 dark:text-green-400"
+                    : ""
+                }`}
+              >
+                {monthly.kmDriven > 0
+                  ? `${monthly.savedVsDieselEur >= 0 ? "" : "−"}${Math.abs(monthly.savedVsDieselEur).toFixed(2)} €`
+                  : "—"}
+              </p>
+              {monthly.consumptionKwhPer100Km != null && (
+                <p className="text-muted-foreground text-xs">
+                  ~{monthly.consumptionKwhPer100Km} kWh/100 km (solo casa)
+                </p>
+              )}
+            </div>
+          </div>
+          {octopus.monthIntelligentSavingEur > 0 && (
+            <p className="text-muted-foreground border-t border-border pt-3 text-xs">
+              Intelligent Octopus (stima mese DB): −{octopus.monthIntelligentSavingEur.toFixed(2)} €
+              sulla materia energia Tesla ottimizzata — accredito reale in bolletta.
+            </p>
+          )}
+        </CardContent>
+      </Card>
+
+      <Card>
+        <CardHeader>
+          <CardTitle className="flex items-center gap-2">
+            <Fuel className="h-4 w-4" /> Confronto costi
+          </CardTitle>
+          <CardDescription>{DIESEL_LABEL}. Km reali da odometro, spesa ricarica da wallbox.</CardDescription>
         </CardHeader>
         <CardContent className="space-y-4">
           <div className="flex flex-wrap gap-6">
-            {wallbox.deviceId && (
-              <div>
-                <p className="text-muted-foreground text-sm">Wallbox V2C (mese)</p>
-                <p className="text-2xl font-bold tabular-nums">
-                  {wallbox.monthCostEur.toFixed(2)} €
-                </p>
-                <p className="text-muted-foreground text-xs">
-                  {wallbox.monthEnergyKwh.toFixed(1)} kWh
-                </p>
-              </div>
-            )}
             <div>
-              <p className="text-muted-foreground text-sm">Telemetria Tesla (DB)</p>
+              <p className="text-muted-foreground text-sm">Odometro attuale</p>
               <p className="text-2xl font-bold tabular-nums">
-                {cost.totalEur.toFixed(2)} €
+                {monthly.currentOdometerKm != null
+                  ? `${monthly.currentOdometerKm.toFixed(0)} km`
+                  : "—"}
               </p>
-              <p className="text-muted-foreground text-xs">{cost.totalKwh.toFixed(1)} kWh</p>
             </div>
             <div>
-              <p className="text-muted-foreground text-sm">Risparmio vs Diesel (stesso km)</p>
-              <p className="text-2xl font-bold tabular-nums text-green-600 dark:text-green-400">
-                {savedVsDiesel > 0 ? `${savedVsDiesel.toFixed(2)} €` : "0,00 €"}
+              <p className="text-muted-foreground text-sm">Km percorsi nel mese</p>
+              <p className="text-2xl font-bold tabular-nums">
+                {monthly.kmSource === "odometer_delta"
+                  ? `${monthly.kmDriven.toFixed(1)} km`
+                  : "—"}
               </p>
-              <p className="text-muted-foreground text-xs">
-                Equiv. Diesel: {dieselCostEur.toFixed(2)} € ({kmEquivalent.toFixed(0)} km)
+            </div>
+            <div>
+              <p className="text-muted-foreground text-sm">Ricarica casa</p>
+              <p className="text-2xl font-bold tabular-nums">
+                {monthly.homeChargeEur.toFixed(2)} €
+              </p>
+              <p className="text-muted-foreground text-xs">{monthly.homeChargeKwh.toFixed(1)} kWh</p>
+            </div>
+            <div>
+              <p className="text-muted-foreground text-sm">Costo equiv. Diesel</p>
+              <p className="text-2xl font-bold tabular-nums">
+                {monthly.dieselCostEur > 0 ? `${monthly.dieselCostEur.toFixed(2)} €` : "—"}
+              </p>
+            </div>
+            <div>
+              <p className="text-muted-foreground text-sm">Risparmio netto</p>
+              <p className="text-2xl font-bold tabular-nums text-green-600 dark:text-green-400">
+                {monthly.kmDriven > 0
+                  ? `${monthly.savedVsDieselEur.toFixed(2)} €`
+                  : "—"}
               </p>
             </div>
           </div>
           <div>
-            <p className="text-muted-foreground mb-2 text-sm">Risparmio per settimana (ultime 4)</p>
-            <SavingsBarChart series={savingsChart.series} />
+            <p className="text-muted-foreground mb-2 text-sm">Ultime 4 settimane</p>
+            {hasSavingsChartData ? (
+              <SavingsBarChart series={savingsChart.series} />
+            ) : (
+              <div className="flex h-[200px] items-center justify-center rounded-lg border border-dashed border-border bg-muted/20 px-4 text-center text-muted-foreground text-sm">
+                Esegui più sync Tesla e ricariche wallbox per popolare il grafico settimanale.
+              </div>
+            )}
           </div>
         </CardContent>
       </Card>

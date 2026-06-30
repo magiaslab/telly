@@ -1,21 +1,12 @@
-import { Suspense } from "react";
-import type { Metadata } from "next";
-import { TeslaBridgeRedirect } from "@/components/login/tesla-bridge-redirect";
+import { redirect } from "next/navigation";
 
-export const metadata: Metadata = {
-  referrer: "no-referrer",
+type Props = {
+  searchParams: Promise<{ callbackUrl?: string }>;
 };
 
-export default function TeslaBridgePage() {
-  return (
-    <div className="flex min-h-screen items-center justify-center px-4">
-      <Suspense
-        fallback={
-          <p className="text-muted-foreground text-sm">Preparazione accesso Tesla…</p>
-        }
-      >
-        <TeslaBridgeRedirect />
-      </Suspense>
-    </div>
-  );
+/** Reindirizza al flusso OAuth Tesla custom (compatibilità URL vecchio). */
+export default async function TeslaBridgePage({ searchParams }: Props) {
+  const { callbackUrl } = await searchParams;
+  const target = `/api/auth/tesla/go?callbackUrl=${encodeURIComponent(callbackUrl ?? "/dashboard")}`;
+  redirect(target);
 }
