@@ -6,6 +6,9 @@ import {
   getV2cConnected,
   getV2cCurrentState,
   getV2cDeviceStatistics,
+  getV2cMonthTotals,
+  monthRangeRome,
+  parseV2cLocalDateTime,
   resolveV2cDeviceId,
   v2cStatToSessionRow,
   type V2cCurrentState,
@@ -212,6 +215,9 @@ export type WallboxData = {
   sessions: WallboxSessionView[];
   monthEnergyKwh: number;
   monthCostEur: number;
+  monthChargeCount: number;
+  /** Come sono stati calcolati i totali mensili. */
+  monthStatsSource: "v2c_global_api" | "db" | "sessions_partial" | "none";
   source: "db" | "live" | "none";
 };
 
@@ -225,24 +231,31 @@ const toView = (s: WallboxSession): WallboxSessionView => ({
   finished: s.finished,
 });
 
-const monthAggregate = (sessions: WallboxSessionView[]) => {
-  const startOfMonth = new Date();
-  startOfMonth.setDate(1);
-  startOfMonth.setHours(0, 0, 0, 0);
-  const inMonth = sessions.filter(
-    (s) => s.startedAt && s.startedAt >= startOfMonth
-  );
+const monthAggregateFromSessions = (
+  sessions: WallboxSessionView[],
+  startDate: Date
+) => {
+  const inMonth = sessions.filter((s) => s.startedAt && s.startedAt >= startDate);
   return {
     monthEnergyKwh: inMonth.reduce((sum, s) => sum + (s.energyKwh ?? 0), 0),
     monthCostEur: inMonth.reduce((sum, s) => sum + (s.costEur ?? 0), 0),
+    monthChargeCount: inMonth.length,
   };
 };
 
 /**
  * Dati completi wallbox per la dashboard: stato realtime + storico ricariche.
- * Le sessioni vengono lette dal DB Neon; se vuoto, fallback live alle statistiche V2C.
+ * Totali mensili da /stadistic/global/me (come app V2C). Tabella da DB o ultime 5 live.
  */
-export async function getWallboxData(limit = 10): Promise<WallboxData> {
+export async function getWallboxData(limit = 20): Promise<WallboxData> {
+  const { startDate } = monthRangeRome();
+  const emptyMonth = {
+    monthEnergyKwh: 0,
+    monthCostEur: 0,
+    monthChargeCount: 0,
+    monthStatsSource: "none" as const,
+  };
+
   const deviceId = await resolveV2cDeviceId();
   if (!deviceId) {
     return {
@@ -250,19 +263,23 @@ export async function getWallboxData(limit = 10): Promise<WallboxData> {
       connected: false,
       status: null,
       sessions: [],
-      monthEnergyKwh: 0,
-      monthCostEur: 0,
+      ...emptyMonth,
       source: "none",
     };
   }
 
-  const [status, connected] = await Promise.all([
+  const [status, connected, monthTotals] = await Promise.all([
     getV2cCurrentState(deviceId).catch(() => null),
     getV2cConnected(deviceId).catch(() => false),
+    getV2cMonthTotals(deviceId).catch(() => ({ totalEnergy: 0, totalCharges: 0 })),
   ]);
 
   let sessions: WallboxSessionView[] = [];
   let source: WallboxData["source"] = "none";
+  let monthStatsSource: WallboxData["monthStatsSource"] = "none";
+  let monthEnergyKwh = 0;
+  let monthCostEur = 0;
+  let monthChargeCount = 0;
 
   try {
     const rows = await db
@@ -276,12 +293,13 @@ export async function getWallboxData(limit = 10): Promise<WallboxData> {
       source = "db";
     }
   } catch {
-    // DB non disponibile: si prova il fallback live sotto
+    // DB non disponibile
   }
 
   if (sessions.length === 0) {
     try {
-      const stats = await getV2cDeviceStatistics(deviceId);
+      const { start, end } = monthRangeRome();
+      const stats = await getV2cDeviceStatistics(deviceId, start, end);
       if (stats.length > 0) {
         sessions = stats
           .map((s) => v2cStatToSessionRow(s))
@@ -301,19 +319,68 @@ export async function getWallboxData(limit = 10): Promise<WallboxData> {
         source = "live";
       }
     } catch {
-      // nessuna sessione disponibile
+      // nessuna sessione
     }
   }
 
-  const { monthEnergyKwh, monthCostEur } = monthAggregate(sessions);
+  if (monthTotals.totalEnergy > 0 || monthTotals.totalCharges > 0) {
+    monthEnergyKwh = monthTotals.totalEnergy;
+    monthChargeCount = monthTotals.totalCharges;
+    monthStatsSource = "v2c_global_api";
+    // L'API globale non espone il costo: stimiamo dalla media costo/kWh delle sessioni note
+    const partial = monthAggregateFromSessions(sessions, startDate);
+    if (partial.monthEnergyKwh > 0 && partial.monthCostEur > 0) {
+      const avgCostPerKwh = partial.monthCostEur / partial.monthEnergyKwh;
+      monthCostEur = monthEnergyKwh * avgCostPerKwh;
+    } else if (sessions.length > 0) {
+      const avgCostPerKwh =
+        sessions.reduce((s, x) => s + x.costEur, 0) /
+        Math.max(sessions.reduce((s, x) => s + x.energyKwh, 0), 1);
+      monthCostEur = monthEnergyKwh * avgCostPerKwh;
+    }
+  } else {
+    const partial = monthAggregateFromSessions(sessions, startDate);
+    monthEnergyKwh = partial.monthEnergyKwh;
+    monthCostEur = partial.monthCostEur;
+    monthChargeCount = partial.monthChargeCount;
+    monthStatsSource = sessions.length > 0 ? "sessions_partial" : "none";
+  }
+
+  // Se abbiamo sessioni DB nel mese, il costo mensile è più preciso dalla somma DB
+  if (source === "db") {
+    try {
+      const monthRows = await db
+        .select()
+        .from(wallboxSessions)
+        .where(
+          and(
+            eq(wallboxSessions.deviceId, deviceId),
+            gte(wallboxSessions.startedAt, startDate)
+          )
+        );
+      if (monthRows.length > 0) {
+        const dbAgg = monthAggregateFromSessions(monthRows.map(toView), startDate);
+        if (dbAgg.monthEnergyKwh > 0) {
+          monthEnergyKwh = dbAgg.monthEnergyKwh;
+          monthCostEur = dbAgg.monthCostEur;
+          monthChargeCount = dbAgg.monthChargeCount;
+          monthStatsSource = "db";
+        }
+      }
+    } catch {
+      // mantieni stima API globale
+    }
+  }
 
   return {
     deviceId,
     connected,
     status,
     sessions,
-    monthEnergyKwh,
-    monthCostEur,
+    monthEnergyKwh: Math.round(monthEnergyKwh * 100) / 100,
+    monthCostEur: Math.round(monthCostEur * 100) / 100,
+    monthChargeCount,
+    monthStatsSource,
     source,
   };
 }

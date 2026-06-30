@@ -2,14 +2,14 @@
  * Client GraphQL per Octopus Energy Italia (istanza Kraken).
  *
  * Endpoint: https://api.oeit-kraken.energy/v1/graphql/
- * Auth: mutation obtainKrakenToken(email/password) -> token (60 min) + refreshToken (7 giorni).
+ * Docs IT: https://docs.oeit-kraken.energy/
+ * Intelligent Octopus: https://octopusenergy.it/intelligent-octopus
  *
- * Schema verificato sul tenant IT:
- * - account(accountNumber) -> properties -> electricitySupplyPoints { pod, product { prices } }
- *   prices: FIXED_SINGLE_RATE con consumptionCharge (F1) + F2/F3 + annualStandingCharge.
- * - devices(accountNumber) -> SmartFlexVehicle (Intelligent Octopus: provider TESLA_V2).
- * - completedDispatches(accountNumber) -> finestre smart completate { start, end, delta }.
- * - flexPlannedDispatches(deviceId) -> finestre pianificate { start, end, type }.
+ * Intelligent Octopus (SmartFlex):
+ * - L'utente imposta ora di partenza e % carica nell'app Octopus; Kraken gestisce le finestre.
+ * - Sconto del 30% sulla componente energia per ogni kWh ottimizzato (non su tutti i kWh).
+ * - Lo sconto viene accreditato in bolletta; i dispatch API indicano i kWh ottimizzati.
+ * - Compatibile con tariffa Fissa 12M / Flex e dispositivi Tesla, V2C Trydan, ecc.
  */
 
 const OCTOPUS_API_URL =
@@ -19,8 +19,9 @@ const OCTOPUS_PASSWORD = process.env.OCTOPUS_PASSWORD;
 const OCTOPUS_ACCOUNT_NUMBER = process.env.OCTOPUS_ACCOUNT_NUMBER;
 const OCTOPUS_POD = process.env.OCTOPUS_POD;
 
-/** Sconto Intelligent Octopus sull'energia caricata nelle finestre smart. */
+/** Sconto Intelligent Octopus sulla componente energia (materia prima), solo kWh ottimizzati. */
 export const INTELLIGENT_DISCOUNT = 0.3;
+export const INTELLIGENT_OCTOPUS_URL = "https://octopusenergy.it/intelligent-octopus";
 
 export function isOctopusConfigured(): boolean {
   return Boolean(OCTOPUS_EMAIL && OCTOPUS_PASSWORD && OCTOPUS_ACCOUNT_NUMBER);
@@ -120,10 +121,18 @@ export type OctopusData = {
   device: OctopusDevice | null;
   completedDispatches: OctopusDispatch[];
   plannedDispatches: { start: string; end: string }[];
-  /** kWh caricati nelle finestre Intelligent questo mese. */
+  /**
+   * kWh ottimizzati nelle finestre Intelligent restituite dall'API (finestra breve, non mese intero).
+   * L'app Octopus mostra il totale in bolletta; qui abbiamo solo gli ultimi dispatch Kraken.
+   */
+  recentSmartKwh: number;
+  recentSmartEnergyCostEur: number;
+  recentIntelligentSavingEur: number;
+  /** @deprecated usa recentSmartKwh */
   monthSmartKwh: number;
-  /** Risparmio stimato dallo sconto Intelligent (questo mese), in €. */
+  monthSmartEnergyCostEur: number;
   monthIntelligentSavingEur: number;
+  dispatchDataNote: string;
 };
 
 // ---------------------------------------------------------------------------
@@ -252,6 +261,18 @@ async function fetchPlannedDispatches(
   return data.flexPlannedDispatches ?? [];
 }
 
+/** Somma kWh ottimizzati deduplicando finestre (start+end). delta negativo = carica. */
+function aggregateOptimizedKwh(dispatches: OctopusDispatch[]): number {
+  const byWindow = new Map<string, number>();
+  for (const d of dispatches) {
+    if (d.deltaKwh >= 0) continue;
+    const key = `${d.start}|${d.end}`;
+    const kwh = Math.abs(d.deltaKwh);
+    byWindow.set(key, Math.max(byWindow.get(key) ?? 0, kwh));
+  }
+  return [...byWindow.values()].reduce((sum, v) => sum + v, 0);
+}
+
 // ---------------------------------------------------------------------------
 // Aggregato per dashboard
 // ---------------------------------------------------------------------------
@@ -264,8 +285,14 @@ export async function getOctopusData(): Promise<OctopusData> {
     device: null,
     completedDispatches: [],
     plannedDispatches: [],
+    recentSmartKwh: 0,
+    recentSmartEnergyCostEur: 0,
+    recentIntelligentSavingEur: 0,
     monthSmartKwh: 0,
+    monthSmartEnergyCostEur: 0,
     monthIntelligentSavingEur: 0,
+    dispatchDataNote:
+      "L'API Kraken espone solo le ultime finestre Intelligent completate (non il mese intero). Il totale in bolletta è nell'app Octopus.",
   };
   if (!isOctopusConfigured()) return empty;
 
@@ -282,16 +309,12 @@ export async function getOctopusData(): Promise<OctopusData> {
       planned = await fetchPlannedDispatches(token, device.id).catch(() => []);
     }
 
-    // Energia caricata nelle finestre smart questo mese (|delta| dei dispatch di carica).
-    const startOfMonth = new Date();
-    startOfMonth.setDate(1);
-    startOfMonth.setHours(0, 0, 0, 0);
-    const monthSmartKwh = completed
-      .filter((d) => new Date(d.start) >= startOfMonth && d.deltaKwh < 0)
-      .reduce((sum, d) => sum + Math.abs(d.deltaKwh), 0);
+    // API completedDispatches: finestre recenti (non storico mensile completo).
+    const recentSmartKwh = aggregateOptimizedKwh(completed);
 
     const unitRate = tariff?.unitRateEurPerKwh ?? 0;
-    const monthIntelligentSavingEur = monthSmartKwh * unitRate * INTELLIGENT_DISCOUNT;
+    const recentSmartEnergyCostEur = recentSmartKwh * unitRate;
+    const recentIntelligentSavingEur = recentSmartEnergyCostEur * INTELLIGENT_DISCOUNT;
 
     return {
       ...empty,
@@ -299,8 +322,13 @@ export async function getOctopusData(): Promise<OctopusData> {
       device,
       completedDispatches: completed,
       plannedDispatches: planned,
-      monthSmartKwh: Math.round(monthSmartKwh * 100) / 100,
-      monthIntelligentSavingEur: Math.round(monthIntelligentSavingEur * 100) / 100,
+      recentSmartKwh: Math.round(recentSmartKwh * 100) / 100,
+      recentSmartEnergyCostEur: Math.round(recentSmartEnergyCostEur * 100) / 100,
+      recentIntelligentSavingEur: Math.round(recentIntelligentSavingEur * 100) / 100,
+      monthSmartKwh: Math.round(recentSmartKwh * 100) / 100,
+      monthSmartEnergyCostEur: Math.round(recentSmartEnergyCostEur * 100) / 100,
+      monthIntelligentSavingEur: Math.round(recentIntelligentSavingEur * 100) / 100,
+      dispatchDataNote: empty.dispatchDataNote,
     };
   } catch {
     return empty;

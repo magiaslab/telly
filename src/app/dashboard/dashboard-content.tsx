@@ -5,8 +5,9 @@ import {
   getSavingsForBarChart,
   getTeslaAccountAndVehicles,
   getWallboxData,
+  type WallboxData,
 } from "./data";
-import { getOctopusData } from "@/lib/octopus-api";
+import { getOctopusData, INTELLIGENT_OCTOPUS_URL } from "@/lib/octopus-api";
 import { useMock } from "@/lib/use-mock";
 import {
   Card,
@@ -30,9 +31,15 @@ import { WallboxLiveStatus } from "@/components/dashboard/wallbox-live-status";
 
 const DIESEL_EUR_PER_L = 1.75;
 const DIESEL_KM_PER_L = 15;
-const OCTOPUS_EUR_PER_KWH = 0.15;
 /** km per kWh stimato Model Y (es. 6.5 km/kWh) */
 const KM_PER_KWH = 6.5;
+
+const WALLBOX_MONTH_SOURCE_LABEL: Record<WallboxData["monthStatsSource"], string> = {
+  v2c_global_api: "Totali da API V2C (/stadistic/global/me), come l'app wallbox",
+  db: "Somma sessioni salvate nel database (webhook/sync)",
+  sessions_partial: "Stima dalle ultime sessioni visibili (max 5 da API)",
+  none: "Nessun dato",
+};
 
 const TESLA_ERROR_MESSAGES: Record<string, string> = {
   access_denied: "Autorizzazione Tesla annullata.",
@@ -80,11 +87,12 @@ export async function DashboardContent({ teslaError, teslaLinked }: DashboardCon
     getChargingCostThisMonth(),
     getSavingsForBarChart(4),
     getTeslaAccountAndVehicles(),
-    getWallboxData(10),
+    getWallboxData(20),
     getOctopusData(),
   ]);
 
   const dateFmt = new Intl.DateTimeFormat("it-IT", {
+    timeZone: "Europe/Rome",
     day: "2-digit",
     month: "2-digit",
     hour: "2-digit",
@@ -94,11 +102,15 @@ export async function DashboardContent({ teslaError, teslaLinked }: DashboardCon
   // Speso questo mese (da charging_events)
   const spentThisMonth = cost.totalEur;
   const kwhThisMonth = cost.totalKwh;
-  // Equivalente Diesel: stessi km con benzina (km = kwh * km/kWh)
-  const kmEquivalent = kwhThisMonth * KM_PER_KWH;
+  // Confronto diesel: preferisci dati wallbox V2C se disponibili
+  const compareKwh =
+    wallbox.deviceId && wallbox.monthEnergyKwh > 0 ? wallbox.monthEnergyKwh : kwhThisMonth;
+  const compareSpent =
+    wallbox.deviceId && wallbox.monthCostEur > 0 ? wallbox.monthCostEur : spentThisMonth;
+  const kmEquivalent = compareKwh * KM_PER_KWH;
   const dieselLiters = kmEquivalent / DIESEL_KM_PER_L;
   const dieselCostEur = dieselLiters * DIESEL_EUR_PER_L;
-  const savedVsDiesel = dieselCostEur - spentThisMonth;
+  const savedVsDiesel = dieselCostEur - compareSpent;
 
   const mockEnabled = useMock();
   const hasNoData = !latest && chartData.length === 0 && cost.events.length === 0;
@@ -347,7 +359,7 @@ export async function DashboardContent({ teslaError, teslaLinked }: DashboardCon
                 <Plug className="h-4 w-4" /> Wallbox V2C
               </CardTitle>
               <CardDescription>
-                Ricariche reali dalla wallbox · dispositivo{" "}
+                Energia erogata dalla wallbox Trydan (app V2C) · dispositivo{" "}
                 <code className="rounded bg-muted px-1 font-mono text-xs">
                   {wallbox.deviceId}
                 </code>
@@ -362,18 +374,30 @@ export async function DashboardContent({ teslaError, teslaLinked }: DashboardCon
 
             <div className="flex flex-wrap gap-6 border-t border-border pt-4">
               <div>
-                <p className="text-muted-foreground text-sm">Energia questo mese</p>
+                <p className="text-muted-foreground text-sm">Energia questo mese (wallbox)</p>
                 <p className="text-2xl font-bold tabular-nums">
                   {wallbox.monthEnergyKwh.toFixed(1)} kWh
                 </p>
+                <p className="text-muted-foreground text-xs">
+                  {wallbox.monthChargeCount > 0
+                    ? `${wallbox.monthChargeCount} ricariche`
+                    : "—"}
+                </p>
               </div>
               <div>
-                <p className="text-muted-foreground text-sm">Speso questo mese (wallbox)</p>
+                <p className="text-muted-foreground text-sm">Costo stimato (wallbox)</p>
                 <p className="text-2xl font-bold tabular-nums">
                   {wallbox.monthCostEur.toFixed(2)} €
                 </p>
+                <p className="text-muted-foreground text-xs">
+                  Tariffa configurata in V2C (non bolletta Octopus)
+                </p>
               </div>
             </div>
+            <p className="text-muted-foreground text-xs">
+              {WALLBOX_MONTH_SOURCE_LABEL[wallbox.monthStatsSource]}. L&apos;API sessioni restituisce
+              al massimo 5 ricariche: per lo storico completo usa webhook + sync.
+            </p>
 
             <div>
               <p className="text-muted-foreground mb-2 text-sm">Ricariche recenti</p>
@@ -420,12 +444,10 @@ export async function DashboardContent({ teslaError, teslaLinked }: DashboardCon
                   </table>
                 </div>
               )}
-              {wallbox.source === "live" && (
                 <p className="text-muted-foreground mt-2 text-xs">
-                  Dati live da V2C (non ancora salvati). Esegui{" "}
-                  <code className="bg-muted rounded px-1">/api/v2c/sync</code> per archiviarli.
+                  Orari in fuso Europe/Rome. Costo per sessione da API V2C (campo{" "}
+                  <code className="bg-muted rounded px-1">cost</code>).
                 </p>
-              )}
             </div>
           </CardContent>
         </Card>
@@ -482,26 +504,61 @@ export async function DashboardContent({ teslaError, teslaLinked }: DashboardCon
                   </div>
                   {octopus.plannedDispatches.length > 0 ? (
                     <Badge className="bg-green-600 hover:bg-green-700">
-                      {octopus.plannedDispatches.length} ricariche pianificate
+                      {octopus.plannedDispatches.length} finestre pianificate
                     </Badge>
                   ) : (
-                    <Badge variant="outline">Nessuna ricarica pianificata ora</Badge>
+                    <Badge variant="outline">In attesa di prossima finestra</Badge>
                   )}
                 </div>
+                <p className="text-muted-foreground mt-2 text-xs">
+                  Kraken ottimizza la ricarica nelle ore più convenienti (imposti ora di partenza e
+                  % carica nell&apos;app Octopus). Lo sconto del 30% si applica solo ai kWh
+                  ottimizzati, sulla componente energia, e compare in bolletta.{" "}
+                  <a
+                    href={INTELLIGENT_OCTOPUS_URL}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="underline underline-offset-2"
+                  >
+                    Come funziona
+                  </a>
+                </p>
+                <p className="text-muted-foreground mt-2 text-xs">
+                  Kraken pilota la <strong>Tesla</strong> (non la wallbox V2C). I kWh wallbox e
+                  Intelligent possono differire: sono due canali di ricarica distinti.
+                </p>
                 <div className="mt-4 flex flex-wrap gap-6">
                   <div>
-                    <p className="text-muted-foreground text-sm">Energia smart (questo mese)</p>
+                    <p className="text-muted-foreground text-sm">kWh ottimizzati (finestre API)</p>
                     <p className="text-2xl font-bold tabular-nums">
-                      {octopus.monthSmartKwh.toFixed(1)} kWh
+                      {octopus.recentSmartKwh.toFixed(2)} kWh
+                    </p>
+                    <p className="text-muted-foreground text-xs">
+                      Solo ultime finestre Kraken esposte dall&apos;API
                     </p>
                   </div>
                   <div>
-                    <p className="text-muted-foreground text-sm">Risparmio Intelligent (stima 30%)</p>
+                    <p className="text-muted-foreground text-sm">Componente energia (pieno)</p>
+                    <p className="text-2xl font-bold tabular-nums">
+                      {octopus.monthSmartEnergyCostEur.toFixed(2)} €
+                    </p>
+                    <p className="text-muted-foreground text-xs">
+                      {octopus.tariff
+                        ? `${octopus.tariff.unitRateEurPerKwh.toFixed(5)} €/kWh materia energia`
+                        : "—"}
+                    </p>
+                  </div>
+                  <div>
+                    <p className="text-muted-foreground text-sm">Sconto stimato (30% materia energia)</p>
                     <p className="text-2xl font-bold tabular-nums text-green-600 dark:text-green-400">
-                      {octopus.monthIntelligentSavingEur.toFixed(2)} €
+                      −{octopus.recentIntelligentSavingEur.toFixed(2)} €
+                    </p>
+                    <p className="text-muted-foreground text-xs">
+                      Accredito reale in bolletta Octopus (app)
                     </p>
                   </div>
                 </div>
+                <p className="text-muted-foreground mt-2 text-xs">{octopus.dispatchDataNote}</p>
                 {octopus.plannedDispatches.length > 0 && (
                   <div className="mt-3 border-t border-green-500/20 pt-3">
                     <p className="text-muted-foreground mb-1 text-xs">Prossime finestre di ricarica</p>
@@ -514,10 +571,37 @@ export async function DashboardContent({ teslaError, teslaLinked }: DashboardCon
                     </ul>
                   </div>
                 )}
-                <p className="text-muted-foreground mt-3 text-xs">
-                  Stima: 30% sull&apos;energia caricata nelle finestre Intelligent, calcolata sulla
-                  materia energia. Il valore in bolletta dipende dalle componenti regolate.
-                </p>
+                {octopus.completedDispatches.length > 0 && (
+                  <div className="mt-3 border-t border-green-500/20 pt-3">
+                    <p className="text-muted-foreground mb-2 text-xs">Finestre completate (ultime)</p>
+                    <div className="overflow-x-auto">
+                      <table className="w-full text-xs">
+                        <thead>
+                          <tr className="text-muted-foreground border-b border-green-500/20 text-left">
+                            <th className="py-1 pr-3 font-medium">Inizio</th>
+                            <th className="py-1 pr-3 font-medium">Fine</th>
+                            <th className="py-1 text-right font-medium">kWh ottimizzati</th>
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {octopus.completedDispatches.slice(0, 6).map((d, i) => (
+                            <tr key={i} className="border-b border-green-500/10">
+                              <td className="py-1 pr-3 tabular-nums">
+                                {dateFmt.format(new Date(d.start))}
+                              </td>
+                              <td className="py-1 pr-3 tabular-nums">
+                                {dateFmt.format(new Date(d.end))}
+                              </td>
+                              <td className="py-1 text-right tabular-nums">
+                                {Math.abs(d.deltaKwh).toFixed(2)} kWh
+                              </td>
+                            </tr>
+                          ))}
+                        </tbody>
+                      </table>
+                    </div>
+                  </div>
+                )}
               </div>
             )}
           </CardContent>
@@ -526,15 +610,27 @@ export async function DashboardContent({ teslaError, teslaLinked }: DashboardCon
 
       <Card>
         <CardHeader>
-          <CardTitle>Octopus · Costi</CardTitle>
+          <CardTitle>Confronto costi</CardTitle>
           <CardDescription>
-            Speso questo mese vs equivalente Diesel (1,75 €/L, 15 km/L — Kia 1.4 Diesel)
+            Wallbox V2C vs equivalente Diesel (1,75 €/L, 15 km/L). I dati Tesla/Octopus in bolletta
+            possono differire.
           </CardDescription>
         </CardHeader>
         <CardContent className="space-y-4">
           <div className="flex flex-wrap gap-6">
+            {wallbox.deviceId && (
+              <div>
+                <p className="text-muted-foreground text-sm">Wallbox V2C (mese)</p>
+                <p className="text-2xl font-bold tabular-nums">
+                  {wallbox.monthCostEur.toFixed(2)} €
+                </p>
+                <p className="text-muted-foreground text-xs">
+                  {wallbox.monthEnergyKwh.toFixed(1)} kWh
+                </p>
+              </div>
+            )}
             <div>
-              <p className="text-muted-foreground text-sm">Speso questo mese (ricariche)</p>
+              <p className="text-muted-foreground text-sm">Telemetria Tesla (DB)</p>
               <p className="text-2xl font-bold tabular-nums">
                 {cost.totalEur.toFixed(2)} €
               </p>

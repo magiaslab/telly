@@ -1,9 +1,10 @@
 import { NextRequest } from "next/server";
 import { db, wallboxSessions } from "@/db";
+import { parseV2cLocalDateTime } from "@/lib/v2c-api";
 
 export const dynamic = "force-dynamic";
 
-/** Prezzo €/kWh usato per stimare il costo della sessione dal webhook (la sync sovrascrive col costo reale). */
+/** Prezzo €/kWh usato solo se il webhook non include il costo reale V2C. */
 const PRICE_EUR_PER_KWH = Number(process.env.V2C_PRICE_EUR_PER_KWH ?? "0.15");
 
 type V2cWebhookPayload = {
@@ -12,16 +13,10 @@ type V2cWebhookPayload = {
   method?: "startcharge" | "endcharge";
   datetime?: string;
   energy?: string;
+  cost?: string;
   energyByHour?: string;
   rfidCode?: string;
 };
-
-/** Converte "YYYY-MM-DD HH:MM:SS" (ora locale wallbox) in Date. */
-function parseV2cDate(v?: string): Date | null {
-  if (!v) return null;
-  const d = new Date(v.replace(" ", "T"));
-  return isNaN(d.getTime()) ? null : d;
-}
 
 const numOrZero = (v?: string) => {
   const n = parseFloat(v ?? "");
@@ -59,9 +54,14 @@ export async function POST(request: NextRequest) {
     return Response.json({ ok: true, ignored: true });
   }
 
-  const eventDate = parseV2cDate(payload.datetime);
+  const eventDate = parseV2cLocalDateTime(payload.datetime);
   const isEnd = method === "endcharge";
   const energy = numOrZero(payload.energy);
+  const costFromPayload = numOrZero(payload.cost);
+  const costEur =
+    costFromPayload > 0
+      ? costFromPayload
+      : Math.round(energy * PRICE_EUR_PER_KWH * 100) / 100;
 
   try {
     if (isEnd) {
@@ -70,10 +70,10 @@ export async function POST(request: NextRequest) {
         .values({
           deviceId,
           idCharge,
-          startedAt: parseV2cDate(idCharge),
+          startedAt: parseV2cLocalDateTime(idCharge),
           endedAt: eventDate,
           energyKwh: energy,
-          costEur: Math.round(energy * PRICE_EUR_PER_KWH * 100) / 100,
+          costEur,
           energyByHour: payload.energyByHour || null,
           rfidCode: payload.rfidCode || null,
           finished: true,
@@ -84,7 +84,7 @@ export async function POST(request: NextRequest) {
           set: {
             endedAt: eventDate,
             energyKwh: energy,
-            costEur: Math.round(energy * PRICE_EUR_PER_KWH * 100) / 100,
+            costEur,
             energyByHour: payload.energyByHour || null,
             rfidCode: payload.rfidCode || null,
             finished: true,
@@ -97,7 +97,7 @@ export async function POST(request: NextRequest) {
         .values({
           deviceId,
           idCharge,
-          startedAt: eventDate ?? parseV2cDate(idCharge),
+          startedAt: eventDate ?? parseV2cLocalDateTime(idCharge),
           rfidCode: payload.rfidCode || null,
           finished: false,
           updatedAt: new Date(),
@@ -105,7 +105,7 @@ export async function POST(request: NextRequest) {
         .onConflictDoUpdate({
           target: [wallboxSessions.deviceId, wallboxSessions.idCharge],
           set: {
-            startedAt: eventDate ?? parseV2cDate(idCharge),
+            startedAt: eventDate ?? parseV2cLocalDateTime(idCharge),
             updatedAt: new Date(),
           },
         });

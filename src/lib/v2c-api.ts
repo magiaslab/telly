@@ -103,6 +103,88 @@ const num = (v: unknown): number => {
   return Number.isFinite(n) ? n : 0;
 };
 
+const ROME_TZ = "Europe/Rome";
+
+/**
+ * V2C invia date/ora locali wallbox (Italia) come "YYYY-MM-DD HH:MM:SS".
+ * Su Vercel (UTC) `new Date("...T01:00:00")` le interpreta come UTC → +2h in dashboard.
+ */
+export function parseV2cLocalDateTime(v: string | null | undefined): Date | null {
+  if (!v) return null;
+  const m = v.trim().match(/^(\d{4})-(\d{2})-(\d{2})[ T](\d{2}):(\d{2})(?::(\d{2}))?/);
+  if (!m) {
+    const d = new Date(v.replace(" ", "T"));
+    return isNaN(d.getTime()) ? null : d;
+  }
+  const y = Number(m[1]);
+  const mo = Number(m[2]);
+  const d = Number(m[3]);
+  const h = Number(m[4]);
+  const mi = Number(m[5]);
+  const s = Number(m[6] ?? "0");
+  const wantUtc = Date.UTC(y, mo - 1, d, h, mi, s);
+  const formatter = new Intl.DateTimeFormat("en-GB", {
+    timeZone: ROME_TZ,
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+    hour: "2-digit",
+    minute: "2-digit",
+    second: "2-digit",
+    hour12: false,
+  });
+  let t = wantUtc;
+  for (let i = 0; i < 4; i++) {
+    const parts = Object.fromEntries(
+      formatter.formatToParts(new Date(t)).map((p) => [p.type, p.value])
+    );
+    const gotUtc = Date.UTC(
+      Number(parts.year),
+      Number(parts.month) - 1,
+      Number(parts.day),
+      Number(parts.hour),
+      Number(parts.minute),
+      Number(parts.second)
+    );
+    t += wantUtc - gotUtc;
+  }
+  const out = new Date(t);
+  return isNaN(out.getTime()) ? null : out;
+}
+
+export function formatV2cApiDate(d: Date): string {
+  const parts = new Intl.DateTimeFormat("en-CA", {
+    timeZone: ROME_TZ,
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+  }).formatToParts(d);
+  const y = parts.find((p) => p.type === "year")?.value;
+  const mo = parts.find((p) => p.type === "month")?.value;
+  const day = parts.find((p) => p.type === "day")?.value;
+  return `${y}-${mo}-${day}`;
+}
+
+export function monthRangeRome(): { start: string; end: string; startDate: Date } {
+  const now = new Date();
+  const parts = new Intl.DateTimeFormat("en-CA", {
+    timeZone: ROME_TZ,
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+  }).formatToParts(now);
+  const y = Number(parts.find((p) => p.type === "year")?.value);
+  const mo = Number(parts.find((p) => p.type === "month")?.value);
+  const startDate = parseV2cLocalDateTime(
+    `${y}-${String(mo).padStart(2, "0")}-01 00:00:00`
+  )!;
+  return {
+    start: formatV2cApiDate(startDate),
+    end: formatV2cApiDate(now),
+    startDate,
+  };
+}
+
 /** GET /pairings/me — elenco wallbox associate all'account. */
 export async function getV2cPairings(): Promise<V2cPairing[]> {
   if (useV2cMock()) return [{ id: "MOCK01", name: "Wallbox Telly (mock)" }];
@@ -183,7 +265,7 @@ export async function getV2cDeviceStatistics(
   return Array.isArray(data) ? (data as V2cStatistic[]) : [];
 }
 
-/** GET /stadistic/global/me — statistiche aggregate di tutti i dispositivi. */
+/** GET /stadistic/global/me — totali energia e numero ricariche (usa per il mese). */
 export async function getV2cGlobalStats(
   endChargeDateStart?: string,
   endChargeDateEnd?: string
@@ -197,6 +279,17 @@ export async function getV2cGlobalStats(
     totalEnergy: num(item?.totalEnergy),
     totalCharges: num(item?.totalCharges),
   };
+}
+
+/** Totali mese corrente (fuso Europe/Rome) da API globale V2C. */
+export async function getV2cMonthTotals(_deviceId: string): Promise<V2cGlobalStats> {
+  const { start, end } = monthRangeRome();
+  if (useV2cMock()) return getV2cGlobalStats(start, end);
+  try {
+    return await getV2cGlobalStats(start, end);
+  } catch {
+    return { totalEnergy: 0, totalCharges: 0 };
+  }
 }
 
 // ---------------------------------------------------------------------------
@@ -256,12 +349,14 @@ function mockStatistics(deviceId: string): V2cStatistic[] {
 
 /** Mappa una statistica/evento V2C in una riga DB wallbox_sessions. */
 export function v2cStatToSessionRow(s: V2cStatistic) {
-  const parseDate = (v: string | null) => (v ? new Date(v) : null);
+  const started =
+    parseV2cLocalDateTime(s.startChargeDate) ?? parseV2cLocalDateTime(s.idCharge);
+  const ended = parseV2cLocalDateTime(s.endChargeDate);
   return {
     deviceId: s.deviceId,
     idCharge: s.idCharge,
-    startedAt: parseDate(s.startChargeDate),
-    endedAt: parseDate(s.endChargeDate),
+    startedAt: started,
+    endedAt: ended,
     energyKwh: num(s.energy),
     costEur: num(s.cost),
     costFvEur: num(s.costFv),

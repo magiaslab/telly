@@ -84,6 +84,8 @@ export function WallboxLiveStatus({
   }, [refreshMs]);
 
   const state = (status?.chargeState ?? 0) as V2cChargeState;
+  const voltage =
+    status && status.voltage >= 100 ? Math.round(status.voltage) : null;
 
   return (
     <div className="space-y-3">
@@ -124,7 +126,13 @@ export function WallboxLiveStatus({
         <div>
           <p className="text-muted-foreground text-xs">Tensione</p>
           <p className="text-xl font-bold tabular-nums">
-            {Math.round(status?.voltage ?? 0)} <span className="text-sm font-normal">V</span>
+            {voltage != null ? (
+              <>
+                {voltage} <span className="text-sm font-normal">V</span>
+              </>
+            ) : (
+              <span className="text-muted-foreground text-base font-normal">—</span>
+            )}
           </p>
         </div>
         <div>
