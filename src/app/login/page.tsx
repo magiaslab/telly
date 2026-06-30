@@ -5,8 +5,8 @@ import { TeslaSigninForm } from "@/components/login/tesla-signin-form";
 
 /**
  * Login: email/password oppure Tesla (OAuth). Flusso Tesla allineato alla guida ufficiale
- * (auth.tesla.com authorize, fleet-auth token/refresh). Se auth.tesla.com dà Access Denied
- * usa la dashboard per incollare il token o collegare da lì.
+ * (auth.tesla.com authorize, fleet-auth token/refresh). La policy referrer no-referrer è
+ * impostata nel root layout per evitare il 403 Akamai sul redirect verso auth.tesla.com.
  */
 export default function LoginPage() {
   return (

@@ -23,6 +23,10 @@ export const viewport: Viewport = {
 export const metadata: Metadata = {
   title: "Telly · by codecip Alessandro Cipriani",
   description: "Dashboard telemetria Model Y · Tesla Fleet API + Neon",
+  // Il WAF Akamai di auth.tesla.com risponde 403 (Access Denied) se la navigazione
+  // verso l'authorize porta un header Referer del nostro dominio. Con no-referrer il
+  // browser non invia mai il Referer lungo la catena di redirect verso Tesla.
+  referrer: "no-referrer",
   manifest: "/manifest.webmanifest",
   appleWebApp: {
     capable: true,
