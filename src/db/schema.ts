@@ -7,6 +7,8 @@ import {
   boolean,
   timestamp,
   doublePrecision,
+  text,
+  uniqueIndex,
 } from "drizzle-orm/pg-core";
 
 export { users, accounts, sessions, verificationTokens } from "./auth-schema";
@@ -48,9 +50,33 @@ export const trips = pgTable("trips", {
   kWhConsumed: real("kwh_consumed").notNull(), // ~150 Wh/km
 });
 
+/** Ricariche reali della wallbox V2C (statistiche + webhook). idCharge è l'identificatore univoco V2C della sessione. */
+export const wallboxSessions = pgTable(
+  "wallbox_sessions",
+  {
+    id: serial("id").primaryKey(),
+    deviceId: varchar("device_id", { length: 64 }).notNull(),
+    idCharge: varchar("id_charge", { length: 64 }).notNull(),
+    startedAt: timestamp("started_at", { withTimezone: true }),
+    endedAt: timestamp("ended_at", { withTimezone: true }),
+    energyKwh: real("energy_kwh").notNull().default(0),
+    costEur: real("cost_eur").notNull().default(0),
+    costFvEur: real("cost_fv_eur").notNull().default(0), // costo coperto da fotovoltaico
+    energyByHour: text("energy_by_hour"), // es. "0.9|3.5|3.6|1.6"
+    rfidCode: varchar("rfid_code", { length: 64 }),
+    rfidName: varchar("rfid_name", { length: 128 }),
+    finished: boolean("finished").notNull().default(false),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+    updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [uniqueIndex("wallbox_device_charge_uniq").on(t.deviceId, t.idCharge)]
+);
+
 export type Telemetry = typeof telemetries.$inferSelect;
 export type NewTelemetry = typeof telemetries.$inferInsert;
 export type ChargingEvent = typeof chargingEvents.$inferSelect;
 export type NewChargingEvent = typeof chargingEvents.$inferInsert;
 export type Trip = typeof trips.$inferSelect;
 export type NewTrip = typeof trips.$inferInsert;
+export type WallboxSession = typeof wallboxSessions.$inferSelect;
+export type NewWallboxSession = typeof wallboxSessions.$inferInsert;

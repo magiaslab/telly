@@ -2,7 +2,7 @@
 
 Dashboard read-only per **Tesla Model Y LR RWD** con Next.js 15 (App Router), React 19, Tesla Fleet API e Neon PostgreSQL.
 
-**App in produzione:** [https://telly.codecip.it](https://telly.codecip.it)
+**App in produzione:** [https://telly.magiaslab.com](https://telly.magiaslab.com)
 
 ## Stack
 
@@ -27,13 +27,14 @@ Dashboard read-only per **Tesla Model Y LR RWD** con Next.js 15 (App Router), Re
      - `TESLA_CLIENT_ID` / `TESLA_CLIENT_SECRET` – da [Tesla Developer](https://developer.tesla.com) (piano Personal Use, ~10€/mese di credito)
      - `TESLA_REFRESH_TOKEN` – da flusso OAuth (authorization code → token → `refresh_token`)
      - `AUTH_SECRET` – segreto NextAuth (es. `openssl rand -base64 32`)
-     - Per Tesla (login + Fleet API): `TESLA_CLIENT_ID`, `TESLA_CLIENT_SECRET`, `NEXTAUTH_URL` (es. `https://telly.codecip.it`). Opzionale: `TESLA_REFRESH_TOKEN`, `TESLA_VIN`
+     - Per Tesla (login + Fleet API): `TESLA_CLIENT_ID`, `TESLA_CLIENT_SECRET`, `NEXTAUTH_URL` (es. `https://telly.magiaslab.com`). Opzionale: `TESLA_REFRESH_TOKEN`, `TESLA_VIN`
+     - Per la wallbox V2C: `V2C_API_KEY` (da v2c.cloud → sezione API). Opzionali: `V2C_DEVICE_ID` (se assente, rilevato automaticamente via `/pairings/me`), `V2C_WEBHOOK_SECRET` (protegge l'endpoint webhook), `V2C_PRICE_EUR_PER_KWH` (default `0.15`, usato per stimare il costo dal webhook)
 
 3. **Database**
    ```bash
    npm run db:push
    ```
-   Crea le tabelle su Neon: `telemetries`, `charging_events`, `trips`, e le tabelle Auth (`user`, `account`, `session`, `verificationToken`).
+   Crea le tabelle su Neon: `telemetries`, `charging_events`, `trips`, `wallbox_sessions`, e le tabelle Auth (`user`, `account`, `session`, `verificationToken`).
 
 4. **Avvio**
    ```bash
@@ -46,7 +47,7 @@ Dashboard read-only per **Tesla Model Y LR RWD** con Next.js 15 (App Router), Re
 - **NextAuth v5** con **un solo provider: Tesla OAuth**. Niente email/password: si accede a Telly solo con l’account Tesla.
 - **Login:** `/login` → pulsante **«Accedi con Tesla»** → OAuth Tesla → redirect a `/dashboard`. Il refresh token Tesla è salvato nel JWT di sessione.
 - **Middleware:** reindirizza a `/login` su `/` e `/dashboard` se non autenticato. `/signup` reindirizza a `/login`.
-- **Configurazione:** imposta `NEXTAUTH_URL` (es. `https://telly.codecip.it`). Su [Tesla Developer](https://developer.tesla.com) → Credenziali e API: **URI di reindirizzamento** = `NEXTAUTH_URL` + `/api/auth/callback/tesla` (es. `https://telly.codecip.it/api/auth/callback/tesla`).
+- **Configurazione:** imposta `NEXTAUTH_URL` (es. `https://telly.magiaslab.com`). Su [Tesla Developer](https://developer.tesla.com) → Credenziali e API: **URI di reindirizzamento** = `NEXTAUTH_URL` + `/api/auth/callback/tesla` (es. `https://telly.magiaslab.com/api/auth/callback/tesla`).
 
 ## PWA
 
@@ -66,6 +67,17 @@ Requisiti: sito in **HTTPS**. Su iOS: Safari → Condividi → “Aggiungi a Hom
 - **`GET /api/tesla/me`** – Profilo utente Tesla + regione (id, email, full_name, region). Senza VIN.
 - **`GET /api/tesla/vehicles`** – Lista veicoli dell’account (id, vin, display_name, state). Da qui si può ricavare il VIN per il sync.
 - **`POST /api/signup`** – Registrazione (email, password, nome opzionale).
+
+### Wallbox V2C (api.v2charge.com)
+
+Integrazione con la wallbox **V2Charge** per mostrare le ricariche reali in dashboard. Autenticazione tramite header `apikey` (variabile `V2C_API_KEY`); il `deviceId` è preso da `V2C_DEVICE_ID` o rilevato automaticamente dal primo pairing.
+
+- **`GET /api/v2c/status`** – Stato in tempo reale (charge state, potenza kW, intensità A, tensione, energia sessione) + connettività cloud.
+- **`GET /api/v2c/sessions?limit=N`** – Ricariche salvate su Neon (tabella `wallbox_sessions`).
+- **`GET /api/v2c/sync?from=YYYY-MM-DD&to=YYYY-MM-DD`** – Sincronizza le ultime ricariche dalle statistiche V2C verso Neon (upsert su `deviceId`+`idCharge`).
+- **`POST /api/v2c/webhook`** – Riceve gli eventi V2C `charge started` / `charge ended` e salva la sessione. Registra `https://telly.magiaslab.com/api/v2c/webhook` nel pannello V2C. Se `V2C_WEBHOOK_SECRET` è impostata, va passata come header `x-webhook-secret` o query `?secret=`.
+
+In dashboard la card **Wallbox V2C** mostra lo stato live (auto-refresh ogni 20s), i totali del mese (energia/spesa) e la tabella delle ricariche recenti. Senza `V2C_API_KEY` (o con `NEXT_PUBLIC_USE_MOCK=true`) l'integrazione usa dati mock.
 
 ### API Tesla utilizzabili senza VIN (solo token)
 

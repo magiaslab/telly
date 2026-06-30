@@ -1,5 +1,5 @@
 import { createSelectSchema, createInsertSchema } from "drizzle-zod";
-import { telemetries, chargingEvents, trips } from "./schema";
+import { telemetries, chargingEvents, trips, wallboxSessions } from "./schema";
 
 export const selectTelemetrySchema = createSelectSchema(telemetries);
 export const insertTelemetrySchema = createInsertSchema(telemetries);
@@ -9,3 +9,6 @@ export const insertChargingEventSchema = createInsertSchema(chargingEvents);
 
 export const selectTripSchema = createSelectSchema(trips);
 export const insertTripSchema = createInsertSchema(trips);
+
+export const selectWallboxSessionSchema = createSelectSchema(wallboxSessions);
+export const insertWallboxSessionSchema = createInsertSchema(wallboxSessions);

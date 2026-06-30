@@ -4,6 +4,7 @@ import {
   getChargingCostThisMonth,
   getSavingsForBarChart,
   getTeslaAccountAndVehicles,
+  getWallboxData,
 } from "./data";
 import {
   Card,
@@ -17,12 +18,13 @@ import { BatteryIcon } from "@/components/dashboard/battery-icon";
 import { EnergyChart } from "@/components/dashboard/energy-chart";
 import { SavingsBarChart } from "@/components/dashboard/savings-barchart";
 import { SyncButton } from "@/components/dashboard/sync-button";
-import { Car, Gauge, MapPin, Package, User, Zap } from "lucide-react";
+import { Car, Gauge, MapPin, Package, Plug, User, Zap } from "lucide-react";
 import { DashboardHeader } from "@/components/dashboard/dashboard-header";
 import { VehicleMap } from "@/components/dashboard/vehicle-map";
 import { VehicleConfiguratorCarousel } from "@/components/dashboard/vehicle-configurator-carousel";
 import { TeslaConnectButton } from "@/components/dashboard/tesla-connect-button";
 import { TeslaPasteTokenForm } from "@/components/dashboard/tesla-paste-token-form";
+import { WallboxLiveStatus } from "@/components/dashboard/wallbox-live-status";
 
 const DIESEL_EUR_PER_L = 1.75;
 const DIESEL_KM_PER_L = 15;
@@ -70,13 +72,21 @@ function TeslaReconnectCard({ teslaError }: { teslaError?: string }) {
 }
 
 export async function DashboardContent({ teslaError, teslaLinked }: DashboardContentProps) {
-  const [latest, chartData, cost, savingsChart, teslaAccount] = await Promise.all([
+  const [latest, chartData, cost, savingsChart, teslaAccount, wallbox] = await Promise.all([
     getLatestTelemetry(),
     getTelemetriesForChart(7),
     getChargingCostThisMonth(),
     getSavingsForBarChart(4),
     getTeslaAccountAndVehicles(),
+    getWallboxData(10),
   ]);
+
+  const dateFmt = new Intl.DateTimeFormat("it-IT", {
+    day: "2-digit",
+    month: "2-digit",
+    hour: "2-digit",
+    minute: "2-digit",
+  });
 
   // Speso questo mese (da charging_events)
   const spentThisMonth = cost.totalEur;
@@ -312,6 +322,98 @@ export async function DashboardContent({ teslaError, teslaLinked }: DashboardCon
           <EnergyChart data={chartData} />
         </CardContent>
       </Card>
+
+      {wallbox.deviceId && (
+        <Card>
+          <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
+            <div>
+              <CardTitle className="flex items-center gap-2">
+                <Plug className="h-4 w-4" /> Wallbox V2C
+              </CardTitle>
+              <CardDescription>
+                Ricariche reali dalla wallbox · dispositivo{" "}
+                <code className="rounded bg-muted px-1 font-mono text-xs">
+                  {wallbox.deviceId}
+                </code>
+              </CardDescription>
+            </div>
+          </CardHeader>
+          <CardContent className="space-y-6">
+            <WallboxLiveStatus
+              initialStatus={wallbox.status}
+              initialConnected={wallbox.connected}
+            />
+
+            <div className="flex flex-wrap gap-6 border-t border-border pt-4">
+              <div>
+                <p className="text-muted-foreground text-sm">Energia questo mese</p>
+                <p className="text-2xl font-bold tabular-nums">
+                  {wallbox.monthEnergyKwh.toFixed(1)} kWh
+                </p>
+              </div>
+              <div>
+                <p className="text-muted-foreground text-sm">Speso questo mese (wallbox)</p>
+                <p className="text-2xl font-bold tabular-nums">
+                  {wallbox.monthCostEur.toFixed(2)} €
+                </p>
+              </div>
+            </div>
+
+            <div>
+              <p className="text-muted-foreground mb-2 text-sm">Ricariche recenti</p>
+              {wallbox.sessions.length === 0 ? (
+                <p className="text-muted-foreground text-sm">
+                  Nessuna ricarica registrata. Avvia una sincronizzazione:{" "}
+                  <code className="bg-muted rounded px-1.5 py-0.5">/api/v2c/sync</code>
+                </p>
+              ) : (
+                <div className="overflow-x-auto">
+                  <table className="w-full text-sm">
+                    <thead>
+                      <tr className="text-muted-foreground border-b border-border text-left">
+                        <th className="py-2 pr-4 font-medium">Inizio</th>
+                        <th className="py-2 pr-4 font-medium">Fine</th>
+                        <th className="py-2 pr-4 text-right font-medium">Energia</th>
+                        <th className="py-2 pr-4 text-right font-medium">Costo</th>
+                        <th className="py-2 font-medium">Utente</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {wallbox.sessions.map((s) => (
+                        <tr key={s.idCharge} className="border-b border-border/50">
+                          <td className="py-2 pr-4 tabular-nums">
+                            {s.startedAt ? dateFmt.format(s.startedAt) : "—"}
+                          </td>
+                          <td className="py-2 pr-4 tabular-nums">
+                            {s.endedAt ? (
+                              dateFmt.format(s.endedAt)
+                            ) : (
+                              <Badge variant="secondary">in corso</Badge>
+                            )}
+                          </td>
+                          <td className="py-2 pr-4 text-right tabular-nums">
+                            {s.energyKwh.toFixed(2)} kWh
+                          </td>
+                          <td className="py-2 pr-4 text-right tabular-nums">
+                            {s.costEur.toFixed(2)} €
+                          </td>
+                          <td className="py-2">{s.rfidName ?? "—"}</td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              )}
+              {wallbox.source === "live" && (
+                <p className="text-muted-foreground mt-2 text-xs">
+                  Dati live da V2C (non ancora salvati). Esegui{" "}
+                  <code className="bg-muted rounded px-1">/api/v2c/sync</code> per archiviarli.
+                </p>
+              )}
+            </div>
+          </CardContent>
+        </Card>
+      )}
 
       <Card>
         <CardHeader>

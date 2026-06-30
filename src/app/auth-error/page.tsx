@@ -36,7 +36,7 @@ export default async function AuthErrorPage(props: PageProps) {
               <code className="rounded bg-muted px-1.5 py-0.5">AUTH_SECRET</code> — almeno 32 caratteri (es. <code className="rounded bg-muted px-1.5 py-0.5">openssl rand -base64 32</code>)
             </li>
             <li>
-              <code className="rounded bg-muted px-1.5 py-0.5">NEXTAUTH_URL</code> — esattamente <code className="rounded bg-muted px-1.5 py-0.5">https://telly.codecip.it</code> (nessuno slash finale)
+              <code className="rounded bg-muted px-1.5 py-0.5">NEXTAUTH_URL</code> — esattamente <code className="rounded bg-muted px-1.5 py-0.5">https://telly.magiaslab.com</code> (nessuno slash finale)
             </li>
             <li>
               <code className="rounded bg-muted px-1.5 py-0.5">TESLA_CLIENT_ID</code> e <code className="rounded bg-muted px-1.5 py-0.5">TESLA_CLIENT_SECRET</code> — da Tesla Developer
@@ -49,11 +49,11 @@ export default async function AuthErrorPage(props: PageProps) {
             <li>
               <strong>URI di reindirizzamento</strong> deve essere esattamente:{" "}
               <code className="break-all rounded bg-muted px-1.5 py-0.5">
-                https://telly.codecip.it/api/auth/callback/tesla
+                https://telly.magiaslab.com/api/auth/callback/tesla
               </code>
             </li>
             <li>
-              <strong>Origine consentita</strong>: <code className="rounded bg-muted px-1.5 py-0.5">https://telly.codecip.it</code>
+              <strong>Origine consentita</strong>: <code className="rounded bg-muted px-1.5 py-0.5">https://telly.magiaslab.com</code>
             </li>
           </ul>
           <p className="text-muted-foreground text-sm">

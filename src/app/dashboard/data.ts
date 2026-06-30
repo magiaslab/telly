@@ -1,7 +1,16 @@
 import { cookies } from "next/headers";
-import { db, telemetries, chargingEvents, trips } from "@/db";
+import { db, telemetries, chargingEvents, trips, wallboxSessions } from "@/db";
 import { eq, desc, and, gte } from "drizzle-orm";
 import { getEffectiveVin } from "@/lib/use-mock";
+import {
+  getV2cConnected,
+  getV2cCurrentState,
+  getV2cDeviceStatistics,
+  resolveV2cDeviceId,
+  v2cStatToSessionRow,
+  type V2cCurrentState,
+} from "@/lib/v2c-api";
+import type { WallboxSession } from "@/db";
 import {
   getTeslaAccessToken,
   getTeslaRegion,
@@ -179,4 +188,132 @@ export async function getTeslaAccountAndVehicles(): Promise<TeslaAccountData | n
   });
   if (!res.ok) return null;
   return res.json();
+}
+
+// ---------------------------------------------------------------------------
+// Wallbox V2C
+// ---------------------------------------------------------------------------
+
+/** Vista normalizzata di una ricarica wallbox (da DB o live V2C). */
+export type WallboxSessionView = {
+  idCharge: string;
+  startedAt: Date | null;
+  endedAt: Date | null;
+  energyKwh: number;
+  costEur: number;
+  rfidName: string | null;
+  finished: boolean;
+};
+
+export type WallboxData = {
+  deviceId: string | null;
+  connected: boolean;
+  status: V2cCurrentState | null;
+  sessions: WallboxSessionView[];
+  monthEnergyKwh: number;
+  monthCostEur: number;
+  source: "db" | "live" | "none";
+};
+
+const toView = (s: WallboxSession): WallboxSessionView => ({
+  idCharge: s.idCharge,
+  startedAt: s.startedAt ? new Date(s.startedAt) : null,
+  endedAt: s.endedAt ? new Date(s.endedAt) : null,
+  energyKwh: s.energyKwh,
+  costEur: s.costEur,
+  rfidName: s.rfidName,
+  finished: s.finished,
+});
+
+const monthAggregate = (sessions: WallboxSessionView[]) => {
+  const startOfMonth = new Date();
+  startOfMonth.setDate(1);
+  startOfMonth.setHours(0, 0, 0, 0);
+  const inMonth = sessions.filter(
+    (s) => s.startedAt && s.startedAt >= startOfMonth
+  );
+  return {
+    monthEnergyKwh: inMonth.reduce((sum, s) => sum + (s.energyKwh ?? 0), 0),
+    monthCostEur: inMonth.reduce((sum, s) => sum + (s.costEur ?? 0), 0),
+  };
+};
+
+/**
+ * Dati completi wallbox per la dashboard: stato realtime + storico ricariche.
+ * Le sessioni vengono lette dal DB Neon; se vuoto, fallback live alle statistiche V2C.
+ */
+export async function getWallboxData(limit = 10): Promise<WallboxData> {
+  const deviceId = await resolveV2cDeviceId();
+  if (!deviceId) {
+    return {
+      deviceId: null,
+      connected: false,
+      status: null,
+      sessions: [],
+      monthEnergyKwh: 0,
+      monthCostEur: 0,
+      source: "none",
+    };
+  }
+
+  const [status, connected] = await Promise.all([
+    getV2cCurrentState(deviceId).catch(() => null),
+    getV2cConnected(deviceId).catch(() => false),
+  ]);
+
+  let sessions: WallboxSessionView[] = [];
+  let source: WallboxData["source"] = "none";
+
+  try {
+    const rows = await db
+      .select()
+      .from(wallboxSessions)
+      .where(eq(wallboxSessions.deviceId, deviceId))
+      .orderBy(desc(wallboxSessions.startedAt))
+      .limit(limit);
+    if (rows.length > 0) {
+      sessions = rows.map(toView);
+      source = "db";
+    }
+  } catch {
+    // DB non disponibile: si prova il fallback live sotto
+  }
+
+  if (sessions.length === 0) {
+    try {
+      const stats = await getV2cDeviceStatistics(deviceId);
+      if (stats.length > 0) {
+        sessions = stats
+          .map((s) => v2cStatToSessionRow(s))
+          .map((r) => ({
+            idCharge: r.idCharge,
+            startedAt: r.startedAt,
+            endedAt: r.endedAt,
+            energyKwh: r.energyKwh,
+            costEur: r.costEur,
+            rfidName: r.rfidName,
+            finished: r.finished,
+          }))
+          .sort(
+            (a, b) =>
+              (b.startedAt?.getTime() ?? 0) - (a.startedAt?.getTime() ?? 0)
+          );
+        source = "live";
+      }
+    } catch {
+      // nessuna sessione disponibile
+    }
+  }
+
+  const { monthEnergyKwh, monthCostEur } = monthAggregate(sessions);
+
+  return {
+    deviceId,
+    connected,
+    status,
+    sessions,
+    monthEnergyKwh,
+    monthCostEur,
+    source,
+  };
 }

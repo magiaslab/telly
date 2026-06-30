@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 
 /**
  * Tesla Developer può essere configurato con redirect URI
- * https://telly.codecip.it/api/auth/tesla/callback
+ * https://telly.magiaslab.com/api/auth/tesla/callback
  * ma NextAuth v5 usa /api/auth/callback/tesla.
  * Reindirizziamo qui così entrambi gli URI funzionano.
  */
