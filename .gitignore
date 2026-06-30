@@ -23,6 +23,8 @@
 # misc
 .DS_Store
 *.pem
+# eccezione: la public key Tesla DEVE essere servita pubblicamente
+!public/.well-known/appspecific/com.tesla.3p.public-key.pem
 
 # debug
 npm-debug.log*
@@ -35,6 +37,10 @@ yarn-error.log*
 
 # vercel
 .vercel
+
+# Tesla private key (non committare mai)
+keys/
+_tmp_*
 
 # typescript
 *.tsbuildinfo
